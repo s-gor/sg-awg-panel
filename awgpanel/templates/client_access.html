@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} · SG-AWG-Panel{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ client.name }}</h1><p class="muted">Импортируйте конфигурацию в клиент с поддержкой AmneziaWG 2.0.</p></div><a class="button" href="{{ url_for('dashboard') }}">Назад</a></div>
+<section class="access-grid">
+  <div class="card qr"><img src="{{ qr_data }}" alt="QR-код"></div>
+  <div class="card">
+    <div class="actions"><a class="button primary" href="{{ url_for('client_download', client_id=client.id) }}">Скачать .conf</a></div>
+    <textarea rows="24" readonly>{{ config_text }}</textarea>
+    <p class="muted">Этот файл содержит закрытый ключ. Не публикуйте его.</p>
+  </div>
+</section>
+{% endblock %}

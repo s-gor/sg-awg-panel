@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>AmneziaWG Server</h1>
+    <p class="muted">Отдельный сервер AWG 2.0 без Xray, WARP и других модулей.</p>
+  </div>
+  <div class="status {{ 'ok' if awg.service_state == 'active' else 'warn' }}">{{ awg.service_state }}</div>
+</div>
+
+<section class="stats-grid">
+  <div class="card"><span>Пакет AWG</span><strong>{{ 'установлен' if awg.installed else 'не установлен' }}</strong></div>
+  <div class="card"><span>Kernel module</span><strong>{{ 'загружен' if awg.module_loaded else 'не загружен' }}</strong></div>
+  <div class="card"><span>Клиенты</span><strong>{{ awg.clients|length }}</strong></div>
+  <div class="card"><span>Память</span><strong>{{ awg.resources.memory_percent }}%</strong></div>
+</section>
+
+{% if not awg.installed %}
+<section class="card warning-box">
+  <h2>AmneziaWG ещё не установлен</h2>
+  <p>На сервере выполните:</p>
+  <pre>sudo bash /opt/sg-awg-panel/deploy/install-amneziawg.sh</pre>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="section-head">
+    <div><h2>Сервер</h2><p class="muted">Публичный адрес и параметры AWG 2.0.</p></div>
+    <div class="actions">
+      <form method="post" action="{{ url_for('service_action', action='start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Запустить</button></form>
+      <form method="post" action="{{ url_for('service_action', action='restart') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Перезапустить</button></form>
+      <form method="post" action="{{ url_for('service_action', action='stop') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Остановить</button></form>
+    </div>
+  </div>
+  <form method="post" action="{{ url_for('save_settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-grid">
+      <label>Публичный IP или домен
+        <input name="endpoint_host" value="{{ awg.settings.endpoint_host }}" placeholder="203.0.113.10" required>
+      </label>
+      <label>UDP-порт
+        <input type="number" min="1" max="65535" name="listen_port" value="{{ awg.settings.listen_port }}" required>
+      </label>
+      <label>Сеть клиентов
+        <input name="server_network" value="{{ awg.settings.server_network }}" required>
+      </label>
+      <label>DNS
+        <input name="dns_servers" value="{{ awg.settings.dns_servers }}" required>
+      </label>
+      <label>Внешний интерфейс
+        <input name="external_interface" value="{{ awg.settings.external_interface or awg.external_interface_detected }}" placeholder="ens5" required>
+      </label>
+      <label>MTU
+        <input type="number" min="576" max="1500" name="mtu" value="{{ awg.settings.mtu }}" required>
+      </label>
+    </div>
+
+    <details>
+      <summary>Параметры маскировки AWG 2.0</summary>
+      <div class="form-grid compact">
+        {% for name in ['jc','jmin','jmax','s1','s2','s3','s4'] %}
+        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>
+        {% endfor %}
+        {% for name in ['h1','h2','h3','h4'] %}
+        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}" placeholder="создастся автоматически"></label>
+        {% endfor %}
+        {% for name in ['i1','i2','i3','i4','i5'] %}
+        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>
+        {% endfor %}
+      </div>
+    </details>
+    <button class="button primary" type="submit">Сохранить конфигурацию</button>
+  </form>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><h2>Клиенты</h2><p class="muted">Каждому устройству создаётся отдельная конфигурация и QR-код.</p></div></div>
+  {% if awg.configured %}
+  <form class="inline-form" method="post" action="{{ url_for('client_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="name" placeholder="Название устройства" required>
+    <input name="comment" placeholder="Комментарий">
+    <button class="button primary" type="submit">Создать клиента</button>
+  </form>
+  {% else %}
+  <p class="muted">Сначала сохраните конфигурацию сервера.</p>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Клиент</th><th>Адрес</th><th>Handshake</th><th>RX / TX</th><th></th></tr></thead>
+      <tbody>
+      {% for client in awg.clients %}
+        <tr class="{{ 'disabled' if not client.enabled else '' }}">
+          <td><strong>{{ client.name }}</strong><br><span class="muted">{{ client.comment }}</span></td>
+          <td><code>{{ client.address }}</code></td>
+          <td>{{ client.latest_handshake_text }}</td>
+          <td>{{ client.rx }} / {{ client.tx }}</td>
+          <td class="row-actions">
+            <a class="button small" href="{{ url_for('client_access', client_id=client.id) }}">Конфиг / QR</a>
+            <form method="post" action="{{ url_for('client_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if client.enabled else 'Включить' }}</button></form>
+            <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" onsubmit="return confirm('Удалить клиента?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Удалить</button></form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">Клиенты ещё не созданы.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card diagnostics">
+  <h2>Ресурсы слабого VPS</h2>
+  <p>Load average: <strong>{{ awg.resources.load1 }} / {{ awg.resources.load5 }} / {{ awg.resources.load15 }}</strong></p>
+  <p>Память: <strong>{{ awg.resources.memory_percent }}%</strong></p>
+  <p>Конфигурация: <code>{{ awg.config_path }}</code></p>
+</section>
+{% endblock %}

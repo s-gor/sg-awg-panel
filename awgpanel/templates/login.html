@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Вход · SG-AWG-Panel{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Вход</h1>
+  <p class="muted">Отдельная панель только для AmneziaWG 2.0.</p>
+  <form method="post" action="{{ url_for('login_post') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Пароль администратора
+      <input type="password" name="password" autocomplete="current-password" required autofocus>
+    </label>
+    <button class="button primary" type="submit">Войти</button>
+  </form>
+</section>
+{% endblock %}

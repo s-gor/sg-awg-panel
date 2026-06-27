@@ -4,9 +4,9 @@
 
 Этот репозиторий не является модулем SG-Panel и не содержит Xray, VLESS, WARP, Routing или подписки. Проект специально отделён, чтобы спокойно проверять AmneziaWG на отдельном слабом VPS.
 
-Текущая версия: **v0.1.0-alpha1**.
+Текущая версия: **v0.1.0-alpha2**.
 
-## Что умеет Alpha 1
+## Что умеет Alpha 2
 
 - устанавливает официальный пакет AmneziaWG без Docker;
 - создаёт отдельный интерфейс `awg0`;
@@ -17,7 +17,7 @@
 - включает, отключает и удаляет клиентов;
 - показывает последний handshake, RX/TX, память и load average.
 
-## Ограничения Alpha 1
+## Ограничения Alpha 2
 
 - Ubuntu 22.04 или 24.04;
 - только IPv4;
@@ -38,7 +38,7 @@
 
 ```bash
 sudo -i
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha1/install-from-github.sh -o /root/install-sg-awg-panel.sh
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha2/install-from-github.sh -o /root/install-sg-awg-panel.sh
 bash /root/install-sg-awg-panel.sh
 ```
 

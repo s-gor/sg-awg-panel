@@ -17,7 +17,7 @@ set -Eeuo pipefail
 tmp="$(mktemp /tmp/sg-awg-install.XXXXXX.sh)"
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL \
-  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha5/install-from-github.sh \
+  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha6/install-from-github.sh \
   -o "$tmp"
 sudo bash "$tmp"
 BASH

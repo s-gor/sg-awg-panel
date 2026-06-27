@@ -4,7 +4,7 @@
 
 Проект не использует Xray и не является модулем SG-Panel. Он управляет собственным AWG-сервером: интерфейсом `awg0`, клиентами, ключами, Routing, DNS, доступом к конфигам, резервными копиями и диагностикой.
 
-Текущая версия: **v0.1.0-alpha5**.
+Текущая версия: **v0.1.0-alpha6**.
 
 ## Что уже работает
 
@@ -14,7 +14,8 @@
 - страницы Overview, Server, Clients, Access, Routing, DNS, Diagnostics, Backups, Security и Settings;
 - создание, включение, отключение, удаление и пересоздание ключей клиентов;
 - `.conf`, QR-код и персональная ссылка на актуальный конфиг;
-- полный или выборочный `AllowedIPs` для каждого клиента;
+- полный туннель, только сеть AWG или пользовательский `AllowedIPs` для каждого клиента;
+- индивидуальные DNS и MTU клиента с наследованием серверных значений;
 - изоляция клиентов друг от друга;
 - handshake, RX/TX, uptime и реальная память процесса панели;
 - автоматические ежедневные и ручные резервные копии;
@@ -57,7 +58,7 @@ set -Eeuo pipefail
 tmp="$(mktemp /tmp/sg-awg-install.XXXXXX.sh)"
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL \
-  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha5/install-from-github.sh \
+  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha6/install-from-github.sh \
   -o "$tmp"
 sudo bash "$tmp"
 BASH
@@ -72,8 +73,8 @@ http://PUBLIC_IP:8080
 ## Первый запуск
 
 1. Откройте **Server**.
-2. Проверьте публичный IPv4 и внешний интерфейс.
-3. Оставьте для первого теста UDP `585`, сеть `10.77.0.0/24`, MTU `1280`.
+2. Проверьте публичный IPv4 и внешний интерфейс или нажмите **«Определить»**.
+3. Оставьте для первого теста UDP `585`, сеть `10.77.0.0/24`, MTU `1280` и проверенный профиль маскировки.
 4. Нажмите **«Сохранить и запустить»**.
 5. Откройте **Clients** и создайте устройство.
 6. Скачайте `.conf` или используйте QR-код.
@@ -96,7 +97,7 @@ sudo awg show awg0
 ## Обновление
 
 ```bash
-sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha5 \
+sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha6 \
   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
 
@@ -129,7 +130,7 @@ sudo bash /opt/sg-awg-panel/deploy/enable-https.sh \
 - [HTTPS](docs/HTTPS.md)
 - [Удаление](docs/UNINSTALL.md)
 
-## Ограничения Alpha 5
+## Ограничения Alpha 6
 
 - только IPv4;
 - один интерфейс `awg0`;

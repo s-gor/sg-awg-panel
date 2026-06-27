@@ -520,9 +520,9 @@ def render_awg_client_config(client_id: int) -> str:
     lines = [
         "[Interface]",
         f"Address = {client['address']}",
-        f"DNS = {settings['dns_servers']}",
+        f"DNS = {client['dns_servers'] or settings['dns_servers']}",
         f"PrivateKey = {client['private_key']}",
-        f"MTU = {settings['mtu']}",
+        f"MTU = {client['mtu'] or settings['mtu']}",
         *_obfuscation_lines(settings),
         "",
         "[Peer]",
@@ -752,6 +752,39 @@ def update_awg_client_routing(client_id: int, allowed_ips: str):
         return find_awg_client(client_id)
     except Exception:
         _restore_backup(backup)
+        raise
+
+
+def update_awg_client_settings(
+    client_id: int, *, name: str, comment: str, dns_servers: str, mtu: str
+):
+    _require_root()
+    current = find_awg_client(client_id)
+    normalized_name = name.strip()
+    if not AWG_NAME_RE.fullmatch(normalized_name):
+        raise ValueError("Имя клиента должно содержать от 1 до 64 обычных символов")
+    normalized_dns = _validate_dns_servers(dns_servers) if dns_servers.strip() else ""
+    normalized_mtu: int | None = None
+    if mtu.strip():
+        normalized_mtu = int(mtu)
+        if not 576 <= normalized_mtu <= 1500:
+            raise ValueError("MTU клиента должен быть от 576 до 1500")
+    backup = _backup_state("client-settings")
+    try:
+        with connect() as con:
+            con.execute(
+                """
+                UPDATE awg_clients
+                SET name=?, comment=?, dns_servers=?, mtu=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (normalized_name, comment.strip(), normalized_dns, normalized_mtu, client_id),
+            )
+        return find_awg_client(int(current["id"]))
+    except Exception as exc:
+        _restore_backup(backup)
+        if "UNIQUE" in str(exc).upper():
+            raise AWGPanelError("Клиент с таким именем уже существует") from exc
         raise
 
 

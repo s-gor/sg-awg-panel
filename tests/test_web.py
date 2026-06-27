@@ -157,8 +157,50 @@ def test_diagnostic_report_download(tmp_path, monkeypatch):
     assert "sg-awg-panel-diagnostics.txt" in response.headers["Content-Disposition"]
 
 
-def test_readability_css_uses_muted_accent_and_larger_text():
+def test_ui_uses_sg_panel_geometry_and_muted_blue_accent():
     css = (Path(__file__).resolve().parents[1] / "awgpanel" / "static" / "app.css").read_text()
     assert "--bg: #15191f" in css
-    assert "--accent: #5aa99d" in css
-    assert "font-size: 14px" in css
+    assert "--accent: #7b8fa4" in css
+    assert "grid-template-columns: 258px minmax(0, 1fr)" in css
+    assert "padding: 32px 40px 30px" in css
+    assert "font-size: clamp(29px, 3vw, 38px)" in css
+    assert "--content-width" not in css
+    assert "#5aa99d" not in css
+
+
+def test_client_edit_page_and_save(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    row = {
+        "id": 3,
+        "name": "Laptop",
+        "comment": "work",
+        "dns_servers": "",
+        "mtu": None,
+    }
+    monkeypatch.setattr(web, "find_awg_client", lambda client_id: dict(row))
+    recorded = []
+    monkeypatch.setattr(
+        web,
+        "update_awg_client_settings",
+        lambda client_id, **values: recorded.append((client_id, values)) or {**row, **values},
+    )
+    login(client)
+    response = client.get("/clients/3/edit")
+    assert response.status_code == 200
+    assert "DNS клиента" in response.get_data(as_text=True)
+    with client.session_transaction() as session:
+        token = session["csrf_token"]
+    response = client.post(
+        "/clients/3/edit",
+        data={
+            "csrf_token": token,
+            "name": "Laptop 2",
+            "comment": "new",
+            "dns_servers": "9.9.9.9",
+            "mtu": "1360",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert recorded[0][0] == 3
+    assert recorded[0][1]["dns_servers"] == "9.9.9.9"

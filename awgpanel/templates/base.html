@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#08100f">
+  <meta name="theme-color" content="#15191f">
   <title>{% block title %}SG-AWG-Panel{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ panel_version }}">
 </head>
 {% if session.get('authenticated') %}
-<body class="app-body">
+<body class="app-body ui-standard-page">
 <div class="app-grid" aria-hidden="true"></div>
 <div class="shell">
   <aside class="sidebar">
@@ -74,7 +74,7 @@
       {% if messages %}<div class="flash-stack" aria-live="polite">{% for category, message in messages %}<div class="alert {{ category }} flash-toast"><span>{{ message }}</span><button type="button" aria-label="Закрыть" onclick="this.parentElement.remove()">×</button></div>{% endfor %}</div>{% endif %}
     {% endwith %}
 
-    {% block content %}{% endblock %}
+    <div class="page-stack">{% block content %}{% endblock %}</div>
     <footer class="app-footer"><span>SG-AWG-Panel v{{ panel_version }}</span><span>SQLite · AmneziaWG 2.0 · Native</span></footer>
   </main>
 </div>

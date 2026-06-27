@@ -50,6 +50,7 @@ from .core import (
     start_awg,
     stop_awg,
     update_awg_client_routing,
+    update_awg_client_settings,
     update_dns_servers,
     update_routing_settings,
 )
@@ -258,6 +259,29 @@ def create_app() -> Flask:
             flash(str(exc), "error")
         return redirect(url_for("clients_page"))
 
+    @app.route("/clients/<int:client_id>/edit", methods=["GET", "POST"])
+    @login_required
+    def client_edit(client_id: int):
+        client = find_awg_client(client_id)
+        if request.method == "POST":
+            require_csrf()
+            try:
+                updated = update_awg_client_settings(
+                    client_id,
+                    name=request.form.get("name", ""),
+                    comment=request.form.get("comment", ""),
+                    dns_servers=request.form.get("dns_servers", ""),
+                    mtu=request.form.get("mtu", ""),
+                )
+                flash(f"Настройки клиента {updated['name']} сохранены.", "success")
+                return redirect(url_for("clients_page"))
+            except (ValueError, PermissionError, AWGPanelError) as exc:
+                flash(str(exc), "error")
+                client = find_awg_client(client_id)
+        return render_template(
+            "client_edit.html", client=client, settings=get_awg_settings()
+        )
+
     @app.post("/clients/<int:client_id>/toggle")
     @login_required
     def client_toggle(client_id: int):
@@ -395,7 +419,12 @@ def create_app() -> Flask:
     def client_routing_save(client_id: int):
         require_csrf()
         mode = request.form.get("mode", "all")
-        allowed_ips = "0.0.0.0/0" if mode == "all" else request.form.get("allowed_ips", "")
+        if mode == "all":
+            allowed_ips = "0.0.0.0/0"
+        elif mode == "server":
+            allowed_ips = str(get_awg_settings()["server_network"])
+        else:
+            allowed_ips = request.form.get("allowed_ips", "")
         try:
             client = update_awg_client_routing(client_id, allowed_ips)
             flash(f"Маршруты клиента {client['name']} сохранены.", "success")

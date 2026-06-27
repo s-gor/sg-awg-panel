@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS awg_clients (
     preshared_key TEXT NOT NULL,
     comment TEXT NOT NULL DEFAULT '',
     allowed_ips TEXT NOT NULL DEFAULT '0.0.0.0/0',
+    dns_servers TEXT NOT NULL DEFAULT '',
+    mtu INTEGER,
     access_token TEXT NOT NULL DEFAULT '',
     access_enabled INTEGER NOT NULL DEFAULT 1 CHECK (access_enabled IN (0, 1)),
     access_downloads INTEGER NOT NULL DEFAULT 0,
@@ -86,6 +88,8 @@ def _migrate(con: sqlite3.Connection) -> None:
     client_columns = _columns(con, "awg_clients")
     migrations = {
         "allowed_ips": "TEXT NOT NULL DEFAULT '0.0.0.0/0'",
+        "dns_servers": "TEXT NOT NULL DEFAULT ''",
+        "mtu": "INTEGER",
         "access_token": "TEXT NOT NULL DEFAULT ''",
         "access_enabled": "INTEGER NOT NULL DEFAULT 1",
         "access_downloads": "INTEGER NOT NULL DEFAULT 0",

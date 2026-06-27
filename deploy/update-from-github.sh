@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha5}"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha6}"
 URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
 PROJECT_DIR="/opt/sg-awg-panel"
 ENV_FILE="/etc/sg-awg-panel/web.env"

@@ -3,11 +3,11 @@
 ## Обновление
 
 ```bash
-sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha5 \
+sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha6 \
   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
 
-Updater Alpha 5:
+Updater Alpha 6:
 
 - не запускает `apt update`;
 - не ждёт `unattended-upgrades`;

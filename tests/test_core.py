@@ -257,3 +257,54 @@ def test_diagnostic_report_redacts_keys(monkeypatch):
     assert "secret-value" not in report
     assert "supersecrettoken" not in report
     assert "[REDACTED]" in report
+
+
+def test_client_specific_dns_and_mtu_override_server(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    keys = iter([("server-private", "server-public"), ("client-private", "client-public")])
+    monkeypatch.setattr(core, "_keypair", lambda: next(keys))
+    monkeypatch.setattr(core, "_psk", lambda: "shared-key")
+    monkeypatch.setattr(core, "_command_path", lambda name: None)
+    monkeypatch.setattr(core, "_reload_if_active", lambda: None)
+    core.configure_awg(
+        endpoint_host="203.0.113.10",
+        external_interface="ens5",
+        dns_servers="1.1.1.1",
+        mtu=1280,
+    )
+    client = core.add_awg_client("Laptop")
+    updated = core.update_awg_client_settings(
+        client["id"],
+        name="Laptop",
+        comment="Work device",
+        dns_servers="9.9.9.9, 149.112.112.112",
+        mtu="1360",
+    )
+    assert updated["comment"] == "Work device"
+    assert updated["dns_servers"] == "9.9.9.9, 149.112.112.112"
+    assert updated["mtu"] == 1360
+    text = core.render_awg_client_config(client["id"])
+    assert "DNS = 9.9.9.9, 149.112.112.112" in text
+    assert "MTU = 1360" in text
+
+
+def test_client_empty_dns_and_mtu_inherit_server(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    keys = iter([("server-private", "server-public"), ("client-private", "client-public")])
+    monkeypatch.setattr(core, "_keypair", lambda: next(keys))
+    monkeypatch.setattr(core, "_psk", lambda: "shared-key")
+    monkeypatch.setattr(core, "_command_path", lambda name: None)
+    monkeypatch.setattr(core, "_reload_if_active", lambda: None)
+    core.configure_awg(
+        endpoint_host="203.0.113.10",
+        external_interface="ens5",
+        dns_servers="1.0.0.1",
+        mtu=1280,
+    )
+    client = core.add_awg_client("Phone")
+    core.update_awg_client_settings(
+        client["id"], name="Phone", comment="", dns_servers="", mtu=""
+    )
+    text = core.render_awg_client_config(client["id"])
+    assert "DNS = 1.0.0.1" in text
+    assert "MTU = 1280" in text

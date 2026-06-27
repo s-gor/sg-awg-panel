@@ -27,10 +27,10 @@ wait_for_apt(){
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 5 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 6 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 5 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 6 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){

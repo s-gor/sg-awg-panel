@@ -8,11 +8,15 @@
 </head>
 <body>
 <header class="topbar">
-  <div>
+  <div class="brand">
     <strong>SG-AWG-Panel</strong>
     <span class="version">v{{ panel_version }}</span>
   </div>
   {% if session.get('authenticated') %}
+  <nav class="topnav" aria-label="Главное меню">
+    <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}">Сервер</a>
+    <a class="nav-link {{ 'active' if request.endpoint == 'diagnostics' else '' }}" href="{{ url_for('diagnostics') }}">Диагностика</a>
+  </nav>
   <form method="post" action="{{ url_for('logout') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="button secondary" type="submit">Выйти</button>

@@ -25,11 +25,13 @@ from werkzeug.security import check_password_hash
 from . import __version__
 from .core import (
     add_awg_client,
-    configure_awg,
+    configure_and_start_awg,
     delete_awg_client,
     find_awg_client,
+    get_awg_diagnostics,
     get_awg_overview,
     render_awg_client_config,
+    regenerate_awg_client,
     restart_awg,
     set_awg_client_enabled,
     start_awg,
@@ -117,12 +119,17 @@ def create_app() -> Flask:
     def dashboard():
         return render_template("dashboard.html", awg=get_awg_overview())
 
+    @app.get("/diagnostics")
+    @login_required
+    def diagnostics():
+        return render_template("diagnostics.html", diagnostics=get_awg_diagnostics())
+
     @app.post("/settings")
     @login_required
     def save_settings():
         require_csrf()
         try:
-            configure_awg(
+            _, state = configure_and_start_awg(
                 interface_name="awg0",
                 endpoint_host=request.form.get("endpoint_host", ""),
                 listen_port=request.form.get("listen_port", "585"),
@@ -147,7 +154,7 @@ def create_app() -> Flask:
                 i4=request.form.get("i4", ""),
                 i5=request.form.get("i5", ""),
             )
-            flash("Настройки сохранены, awg0.conf сформирован.", "success")
+            flash(f"Настройки сохранены и применены. AmneziaWG: {state}.", "success")
         except (ValueError, PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("dashboard"))
@@ -191,6 +198,18 @@ def create_app() -> Flask:
         except (PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("dashboard"))
+
+    @app.post("/clients/<int:client_id>/regenerate")
+    @login_required
+    def client_regenerate(client_id: int):
+        require_csrf()
+        try:
+            client = regenerate_awg_client(client_id)
+            flash(f"Ключи клиента {client['name']} пересозданы. Старый конфиг больше не работает.", "success")
+            return redirect(url_for("client_access", client_id=client_id))
+        except (PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("dashboard"))
 
     @app.post("/clients/<int:client_id>/delete")
     @login_required

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Диагностика · SG-AWG-Panel{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Диагностика</h1>
+    <p class="muted">Службы, порт, интерфейс, память, резервные копии и последние журналы.</p>
+  </div>
+  <a class="button" href="{{ url_for('dashboard') }}">Назад к серверу</a>
+</div>
+
+<section class="stats-grid diagnostics-grid">
+  <div class="card"><span>Web-панель</span><strong>{{ diagnostics.panel_state }}</strong><small>PID {{ diagnostics.panel_pid or '—' }} · {{ diagnostics.panel_rss_text }}</small></div>
+  <div class="card"><span>AWG server</span><strong>{{ diagnostics.service_state }}</strong><small>Интерфейс: {{ 'есть' if diagnostics.interface_present else 'нет' }}</small></div>
+  <div class="card"><span>UDP {{ diagnostics.listen_port }}</span><strong>{{ 'слушает' if diagnostics.udp.listening else 'не слушает' }}</strong><small>{{ diagnostics.udp.error }}</small></div>
+  <div class="card"><span>Kernel module</span><strong>{{ 'загружен' if diagnostics.module_loaded else 'не загружен' }}</strong><small>{{ 'пакет установлен' if diagnostics.installed else 'пакет не найден' }}</small></div>
+</section>
+
+<section class="card">
+  <h2>Сеть и ресурсы</h2>
+  <div class="key-values">
+    <div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or 'не определён' }}</strong></div>
+    <div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div>
+    <div><span>Конфигурация</span><strong>{{ diagnostics.config_path }}</strong></div>
+    <div><span>Общая память системы</span><strong>{{ diagnostics.resources.memory_percent }}%</strong></div>
+    <div><span>Load average</span><strong>{{ diagnostics.resources.load1 }} / {{ diagnostics.resources.load5 }} / {{ diagnostics.resources.load15 }}</strong></div>
+  </div>
+  {% if diagnostics.udp.lines %}<pre>{{ diagnostics.udp.lines|join('\n') }}</pre>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Автоматические резервные копии</h2>
+  <p class="muted">Копия базы и awg0.conf создаётся перед каждым изменением сервера или клиентов.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Копия</th><th>Причина</th><th>Состояние до изменения</th></tr></thead>
+      <tbody>
+      {% for backup in diagnostics.backups %}
+        <tr><td><code>{{ backup.name }}</code></td><td>{{ backup.reason or '—' }}</td><td>{{ backup.service_state or '—' }}</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="muted">Резервных копий пока нет.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <details open>
+    <summary>Журнал AmneziaWG</summary>
+    <pre class="log-output">{{ diagnostics.server_logs }}</pre>
+  </details>
+  <details>
+    <summary>Журнал web-панели</summary>
+    <pre class="log-output">{{ diagnostics.panel_logs }}</pre>
+  </details>
+</section>
+{% endblock %}

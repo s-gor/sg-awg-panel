@@ -11,29 +11,69 @@ BACKUP_DIR="/root/sg-awg-panel-backups/$(date -u +%Y%m%d-%H%M%S)"
 log(){ printf '[SG-AWG-Panel] %s\n' "$*"; }
 fail(){ printf '[SG-AWG-Panel] ERROR: %s\n' "$*" >&2; exit 1; }
 
+wait_for_apt(){
+  local waited=0 timeout="${APT_LOCK_TIMEOUT:-900}"
+  while ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr|unattended-upgrade)$'; do
+    (( waited == 0 )) && log "Waiting for Ubuntu background package update to finish"
+    (( waited >= timeout )) && fail "apt/dpkg is still busy after ${timeout} seconds"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  while command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+    (( waited == 0 )) && log "Waiting for apt/dpkg locks"
+    (( waited >= timeout )) && fail "apt/dpkg locks were not released after ${timeout} seconds"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  dpkg --configure -a
+}
+
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 2 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 3 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 2 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 3 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){
-  local key="$1" default="$2" value
+  local key="$1" default="$2" value first last
   value="$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  if (( ${#value} >= 2 )); then
+    first="${value:0:1}"
+    last="${value: -1}"
+    if [[ "$first" == "'" && "$last" == "'" ]] || [[ "$first" == '"' && "$last" == '"' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+  fi
   printf '%s' "${value:-$default}"
 }
 
 log "Ubuntu ${VERSION_ID}; starting installation"
+wait_for_apt
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip rsync ca-certificates
 
 mkdir -p "$BACKUP_DIR" "$DATA_DIR" "$ENV_DIR"
-[[ -f "$DATA_DIR/panel.db" ]] && cp -a "$DATA_DIR/panel.db" "$BACKUP_DIR/panel.db"
+if [[ -f "$DATA_DIR/panel.db" ]]; then
+  SOURCE_DB="$DATA_DIR/panel.db" TARGET_DB="$BACKUP_DIR/panel.db" python3 - <<'PYDB'
+import os
+import sqlite3
+
+source = sqlite3.connect(os.environ["SOURCE_DB"])
+target = sqlite3.connect(os.environ["TARGET_DB"])
+try:
+    source.backup(target)
+finally:
+    target.close()
+    source.close()
+PYDB
+  chmod 600 "$BACKUP_DIR/panel.db"
+fi
 [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$BACKUP_DIR/web.env"
+[[ -f /etc/amnezia/amneziawg/awg0.conf ]] && cp -a /etc/amnezia/amneziawg/awg0.conf "$BACKUP_DIR/awg0.conf"
 
 mkdir -p "$PROJECT_DIR"
 rsync -a --delete \
@@ -64,6 +104,8 @@ AWGPANEL_TRUST_PROXY_HEADERS=0
 AWGPANEL_DB=/var/lib/sg-awg-panel/panel.db
 AWGPANEL_AWG_CONFIG_DIR=/etc/amnezia/amneziawg
 AWGPANEL_AWG_SERVICE=sg-awg-server
+AWGPANEL_BACKUP_DIR=/var/lib/sg-awg-panel/backups
+AWGPANEL_BACKUP_KEEP=20
 ENVEOF
   chmod 600 "$ENV_FILE"
 fi

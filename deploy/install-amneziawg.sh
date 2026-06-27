@@ -4,17 +4,35 @@ set -Eeuo pipefail
 log(){ printf '[SG-AWG-Panel] %s\n' "$*"; }
 fail(){ printf '[SG-AWG-Panel] ERROR: %s\n' "$*" >&2; exit 1; }
 
+wait_for_apt(){
+  local waited=0 timeout="${APT_LOCK_TIMEOUT:-900}"
+  while ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr|unattended-upgrade)$'; do
+    (( waited == 0 )) && log "Waiting for Ubuntu background package update to finish"
+    (( waited >= timeout )) && fail "apt/dpkg is still busy after ${timeout} seconds"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  while command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+    (( waited == 0 )) && log "Waiting for apt/dpkg locks"
+    (( waited >= timeout )) && fail "apt/dpkg locks were not released after ${timeout} seconds"
+    sleep 5
+    waited=$((waited + 5))
+  done
+  dpkg --configure -a
+}
+
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 2 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 3 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 2 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 3 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 KERNEL="$(uname -r)"
+wait_for_apt
 log "Ubuntu ${VERSION_ID}; kernel ${KERNEL}"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \

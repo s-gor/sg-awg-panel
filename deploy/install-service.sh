@@ -9,8 +9,15 @@ SERVICE_FILE="/etc/systemd/system/sg-awg-panel.service"
 [[ -f "$ENV_FILE" ]] || { echo "Missing $ENV_FILE" >&2; exit 1; }
 
 get_env(){
-  local key="$1" default="$2" value
-  value="$(grep -E "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+  local key="$1" default="$2" value first last
+  value="$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  if (( ${#value} >= 2 )); then
+    first="${value:0:1}"
+    last="${value: -1}"
+    if [[ "$first" == "'" && "$last" == "'" ]] || [[ "$first" == '"' && "$last" == '"' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+  fi
   printf '%s' "${value:-$default}"
 }
 

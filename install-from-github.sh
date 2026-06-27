@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha2}"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha3}"
 URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-[[ $EUID -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
+
+log(){ printf '[SG-AWG-Panel] %s\n' "$*"; }
+fail(){ printf '[SG-AWG-Panel] ERROR: %s\n' "$*" >&2; exit 1; }
+wait_for_apt(){
+  local waited=0 timeout="${APT_LOCK_TIMEOUT:-900}"
+  while ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr|unattended-upgrade)$'; do
+    (( waited == 0 )) && log "Waiting for Ubuntu background package update to finish"
+    (( waited >= timeout )) && fail "apt/dpkg is still busy after ${timeout} seconds"
+    sleep 5; waited=$((waited + 5))
+  done
+  while command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+    (( waited == 0 )) && log "Waiting for apt/dpkg locks"
+    (( waited >= timeout )) && fail "apt/dpkg locks were not released after ${timeout} seconds"
+    sleep 5; waited=$((waited + 5))
+  done
+  dpkg --configure -a
+}
+
+[[ $EUID -eq 0 ]] || fail "run as root"
+wait_for_apt
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates tar
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates tar psmisc
 curl -fL "$URL" -o "$TMP/source.tar.gz"
 tar -xzf "$TMP/source.tar.gz" -C "$TMP"
 DIR="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -1)"
+[[ -n "$DIR" ]] || fail "downloaded archive is empty"
 bash "$DIR/deploy/first-install.sh"

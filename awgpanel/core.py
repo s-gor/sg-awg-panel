@@ -1,22 +1,30 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import random
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import db
 from .db import connect, init_db
 from .errors import AWGPanelError
 
 AWG_CONFIG_DIR = Path(os.environ.get("AWGPANEL_AWG_CONFIG_DIR", "/etc/amnezia/amneziawg"))
 AWG_SERVICE = os.environ.get("AWGPANEL_AWG_SERVICE", "sg-awg-server")
 AWG_CONFIG_PATH = AWG_CONFIG_DIR / "awg0.conf"
+BACKUP_DIR = Path(os.environ.get("AWGPANEL_BACKUP_DIR", "/var/lib/sg-awg-panel/backups"))
+BACKUP_KEEP = int(os.environ.get("AWGPANEL_BACKUP_KEEP", "20"))
+_PUBLIC_IP_CACHE: tuple[str, float] = ("", 0.0)
 AWG_NAME_RE = re.compile(r"^[A-Za-z0-9А-Яа-яЁё_. -]{1,64}$")
 
 
@@ -260,6 +268,147 @@ def detect_external_interface() -> str:
     return match.group(1) if match else ""
 
 
+def _url_text(request: urllib.request.Request | str, timeout: float = 2.5) -> str:
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
+        return response.read(256).decode("ascii", errors="ignore").strip()
+
+
+def detect_public_ipv4(*, force: bool = False) -> str:
+    """Best-effort public IPv4 detection without making it a hard dependency."""
+    global _PUBLIC_IP_CACHE
+    cached, cached_at = _PUBLIC_IP_CACHE
+    if not force and cached and time.time() - cached_at < 300:
+        return cached
+
+    def accept(candidate: str) -> str:
+        try:
+            address = ipaddress.ip_address(candidate)
+        except ValueError:
+            return ""
+        if address.version != 4 or address.is_private:
+            return ""
+        value = str(address)
+        _PUBLIC_IP_CACHE = (value, time.time())
+        return value
+
+    try:
+        token_request = urllib.request.Request(
+            "http://169.254.169.254/latest/api/token",
+            method="PUT",
+            headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+        )
+        token = _url_text(token_request, timeout=1.0)
+        if token:
+            ip_request = urllib.request.Request(
+                "http://169.254.169.254/latest/meta-data/public-ipv4",
+                headers={"X-aws-ec2-metadata-token": token},
+            )
+            detected = accept(_url_text(ip_request, timeout=1.0))
+            if detected:
+                return detected
+    except (OSError, urllib.error.URLError, ValueError):
+        pass
+
+    for url in ("https://checkip.amazonaws.com", "https://api.ipify.org"):
+        try:
+            detected = accept(_url_text(url))
+        except (OSError, urllib.error.URLError, ValueError):
+            continue
+        if detected:
+            return detected
+    return cached if not force else ""
+
+
+def _safe_reason(reason: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", reason).strip("-")
+    return cleaned[:48] or "change"
+
+
+def _backup_state(reason: str) -> Path:
+    _require_root()
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(BACKUP_DIR, 0o700)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    target = BACKUP_DIR / f"{stamp}-{_safe_reason(reason)}"
+    target.mkdir(mode=0o700)
+
+    if db.DB_PATH.exists():
+        destination = sqlite3.connect(target / "panel.db")
+        try:
+            with connect() as source:
+                source.backup(destination)
+        finally:
+            destination.close()
+        os.chmod(target / "panel.db", 0o600)
+
+    config_existed = AWG_CONFIG_PATH.exists()
+    if config_existed:
+        shutil.copy2(AWG_CONFIG_PATH, target / "awg0.conf")
+        os.chmod(target / "awg0.conf", 0o600)
+
+    metadata = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+        "config_existed": config_existed,
+        "service_state": awg_service_state(),
+    }
+    (target / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.chmod(target / "metadata.json", 0o600)
+
+    backups = sorted((item for item in BACKUP_DIR.iterdir() if item.is_dir()), reverse=True)
+    for old in backups[max(1, BACKUP_KEEP):]:
+        shutil.rmtree(old, ignore_errors=True)
+    return target
+
+
+def _restore_backup(backup: Path) -> None:
+    metadata_path = backup / "metadata.json"
+    metadata = {}
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+
+    backup_db = backup / "panel.db"
+    if backup_db.exists():
+        db.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        for suffix in ("", "-wal", "-shm"):
+            Path(str(db.DB_PATH) + suffix).unlink(missing_ok=True)
+        shutil.copy2(backup_db, db.DB_PATH)
+        os.chmod(db.DB_PATH, 0o600)
+
+    backup_config = backup / "awg0.conf"
+    AWG_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if backup_config.exists():
+        shutil.copy2(backup_config, AWG_CONFIG_PATH)
+        os.chmod(AWG_CONFIG_PATH, 0o600)
+    elif not metadata.get("config_existed", False):
+        AWG_CONFIG_PATH.unlink(missing_ok=True)
+
+    previous_state = str(metadata.get("service_state", "inactive"))
+    if previous_state == "active" and AWG_CONFIG_PATH.exists():
+        _run(["systemctl", "restart", AWG_SERVICE], timeout=30)
+    else:
+        _run(["systemctl", "stop", AWG_SERVICE], timeout=30)
+
+
+def list_backups(limit: int = 10) -> list[dict[str, object]]:
+    if not BACKUP_DIR.exists():
+        return []
+    result: list[dict[str, object]] = []
+    for item in sorted((path for path in BACKUP_DIR.iterdir() if path.is_dir()), reverse=True)[:limit]:
+        metadata = {}
+        try:
+            metadata = json.loads((item / "metadata.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        result.append({"name": item.name, "path": str(item), **metadata})
+    return result
+
+
 def _server_address(settings) -> str:
     network = ipaddress.ip_network(settings["server_network"], strict=True)
     return f"{next(network.hosts())}/{network.prefixlen}"
@@ -358,26 +507,33 @@ def _write_server_config() -> Path:
     _require_root()
     AWG_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     os.chmod(AWG_CONFIG_DIR, 0o700)
-    temporary = AWG_CONFIG_PATH.with_suffix(".conf.tmp")
+    # awg-quick accepts only <valid-interface-name>.conf. A suffix such as
+    # awg0.conf.tmp is rejected before validation begins.
+    temporary = AWG_CONFIG_DIR / "awgtest0.conf"
     temporary.write_text(render_awg_server_config(), encoding="utf-8")
     os.chmod(temporary, 0o600)
-    awg_quick = _command_path("awg-quick")
-    if awg_quick:
-        validation = _run([awg_quick, "strip", str(temporary)], timeout=15)
-        if validation.returncode != 0:
-            temporary.unlink(missing_ok=True)
-            raise AWGPanelError(
-                validation.stderr.strip()
-                or validation.stdout.strip()
-                or "awg-quick не принял сформированную конфигурацию"
-            )
-    temporary.replace(AWG_CONFIG_PATH)
+    try:
+        awg_quick = _command_path("awg-quick")
+        if awg_quick:
+            validation = _run([awg_quick, "strip", str(temporary)], timeout=15)
+            if validation.returncode != 0:
+                raise AWGPanelError(
+                    validation.stderr.strip()
+                    or validation.stdout.strip()
+                    or "awg-quick не принял сформированную конфигурацию"
+                )
+        temporary.replace(AWG_CONFIG_PATH)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    os.chmod(AWG_CONFIG_PATH, 0o600)
     return AWG_CONFIG_PATH
 
 
-def configure_awg(**values):
-    _require_root()
+def _configure_awg_impl(**values):
     current = get_awg_settings()
+    if not values.get("endpoint_host"):
+        values["endpoint_host"] = detect_public_ipv4()
     if not values.get("external_interface"):
         values["external_interface"] = detect_external_interface()
     if current["configured"]:
@@ -428,6 +584,31 @@ def configure_awg(**values):
     return get_awg_settings()
 
 
+def configure_awg(**values):
+    _require_root()
+    backup = _backup_state("server-settings")
+    try:
+        return _configure_awg_impl(**values)
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def configure_and_start_awg(**values) -> tuple[object, str]:
+    _require_root()
+    backup = _backup_state("server-apply")
+    previous_state = awg_service_state()
+    try:
+        settings = _configure_awg_impl(**values)
+        state = _service_action("restart" if previous_state == "active" else "start")
+        if state != "active":
+            raise AWGPanelError(f"Служба AmneziaWG не запустилась: {state}")
+        return settings, state
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
 def add_awg_client(name: str, comment: str = ""):
     _require_root()
     settings = get_awg_settings()
@@ -436,50 +617,90 @@ def add_awg_client(name: str, comment: str = ""):
     name = name.strip()
     if not AWG_NAME_RE.fullmatch(name):
         raise ValueError("Имя клиента должно содержать от 1 до 64 обычных символов")
-    private_key, public_key = _keypair()
-    preshared_key = _psk()
-    address = _next_client_address(settings)
+    backup = _backup_state("client-add")
     try:
-        with connect() as con:
-            cursor = con.execute(
-                """
-                INSERT INTO awg_clients
-                    (name, address, private_key, public_key, preshared_key, comment)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (name, address, private_key, public_key, preshared_key, comment.strip()),
-            )
-            client_id = int(cursor.lastrowid)
-    except Exception as exc:
-        if "UNIQUE" in str(exc).upper():
-            raise AWGPanelError("Клиент с таким именем уже существует") from exc
+        private_key, public_key = _keypair()
+        preshared_key = _psk()
+        address = _next_client_address(settings)
+        try:
+            with connect() as con:
+                cursor = con.execute(
+                    """
+                    INSERT INTO awg_clients
+                        (name, address, private_key, public_key, preshared_key, comment)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (name, address, private_key, public_key, preshared_key, comment.strip()),
+                )
+                client_id = int(cursor.lastrowid)
+        except Exception as exc:
+            if "UNIQUE" in str(exc).upper():
+                raise AWGPanelError("Клиент с таким именем уже существует") from exc
+            raise
+        _write_server_config()
+        _reload_if_active()
+        return find_awg_client(client_id)
+    except Exception:
+        _restore_backup(backup)
         raise
-    _write_server_config()
-    _reload_if_active()
-    return find_awg_client(client_id)
 
 
 def set_awg_client_enabled(client_id: int, enabled: bool):
     _require_root()
     find_awg_client(client_id)
-    with connect() as con:
-        con.execute(
-            "UPDATE awg_clients SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (1 if enabled else 0, client_id),
-        )
-    _write_server_config()
-    _reload_if_active()
-    return find_awg_client(client_id)
+    backup = _backup_state("client-toggle")
+    try:
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_clients SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (1 if enabled else 0, client_id),
+            )
+        _write_server_config()
+        _reload_if_active()
+        return find_awg_client(client_id)
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def regenerate_awg_client(client_id: int):
+    _require_root()
+    find_awg_client(client_id)
+    backup = _backup_state("client-regenerate")
+    try:
+        private_key, public_key = _keypair()
+        preshared_key = _psk()
+        with connect() as con:
+            con.execute(
+                """
+                UPDATE awg_clients
+                SET private_key=?, public_key=?, preshared_key=?,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (private_key, public_key, preshared_key, client_id),
+            )
+        _write_server_config()
+        _reload_if_active()
+        return find_awg_client(client_id)
+    except Exception:
+        _restore_backup(backup)
+        raise
 
 
 def delete_awg_client(client_id: int):
     _require_root()
     client = find_awg_client(client_id)
-    with connect() as con:
-        con.execute("DELETE FROM awg_clients WHERE id=?", (client_id,))
-    _write_server_config()
-    _reload_if_active()
-    return client
+    backup = _backup_state("client-delete")
+    try:
+        with connect() as con:
+            con.execute("DELETE FROM awg_clients WHERE id=?", (client_id,))
+        _write_server_config()
+        _reload_if_active()
+        return client
+    except Exception:
+        _restore_backup(backup)
+        raise
 
 
 def _service_action(action: str) -> str:
@@ -584,6 +805,92 @@ def _system_resources() -> dict[str, object]:
     }
 
 
+def _format_bytes(value: int) -> str:
+    size = float(max(0, value))
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.0f} {unit}" if unit in {"B", "KiB"} else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{value} B"
+
+
+def _service_main_pid(service: str) -> int:
+    result = _run(["systemctl", "show", "-p", "MainPID", "--value", service])
+    try:
+        return int(result.stdout.strip() or 0)
+    except ValueError:
+        return 0
+
+
+def _process_rss(pid: int) -> int:
+    if pid <= 0:
+        return 0
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def _udp_listener(listen_port: int) -> dict[str, object]:
+    ss = _command_path("ss")
+    if not ss:
+        return {"listening": False, "lines": [], "error": "Команда ss не найдена"}
+    result = _run([ss, "-H", "-lunp"], timeout=10)
+    if result.returncode != 0:
+        return {
+            "listening": False,
+            "lines": [],
+            "error": result.stderr.strip() or "Не удалось проверить UDP-порт",
+        }
+    marker = f":{listen_port}"
+    lines = [line for line in result.stdout.splitlines() if marker in line]
+    return {"listening": bool(lines), "lines": lines, "error": ""}
+
+
+def _service_logs(service: str, lines: int = 80) -> str:
+    journalctl = _command_path("journalctl")
+    if not journalctl:
+        return "journalctl не найден"
+    result = _run(
+        [journalctl, "-u", service, "-n", str(lines), "--no-pager", "--output=short-iso"],
+        timeout=15,
+    )
+    text = result.stdout.strip() or result.stderr.strip()
+    return text[-24_000:] if text else "Журнал пока пуст."
+
+
+def get_awg_diagnostics() -> dict[str, object]:
+    settings = get_awg_settings()
+    state = awg_service_state()
+    panel_pid = _service_main_pid("sg-awg-panel")
+    panel_rss = _process_rss(panel_pid)
+    listen_port = int(settings["listen_port"] or 585)
+    return {
+        "service_state": state,
+        "panel_state": _run(["systemctl", "is-active", "sg-awg-panel"]).stdout.strip() or "inactive",
+        "module_loaded": Path("/sys/module/amneziawg").exists(),
+        "installed": bool(_command_path("awg") and _command_path("awg-quick")),
+        "interface_present": Path(f"/sys/class/net/{settings['interface_name']}").exists(),
+        "external_interface": detect_external_interface(),
+        "public_ipv4": detect_public_ipv4(force=True),
+        "udp": _udp_listener(listen_port),
+        "listen_port": listen_port,
+        "config_path": str(AWG_CONFIG_PATH),
+        "config_exists": AWG_CONFIG_PATH.exists(),
+        "panel_pid": panel_pid,
+        "panel_rss": panel_rss,
+        "panel_rss_text": _format_bytes(panel_rss),
+        "resources": _system_resources(),
+        "server_logs": _service_logs(AWG_SERVICE),
+        "panel_logs": _service_logs("sg-awg-panel"),
+        "backups": list_backups(),
+    }
+
+
 def get_awg_overview() -> dict[str, object]:
     settings = get_awg_settings()
     installed = bool(_command_path("awg") and _command_path("awg-quick"))
@@ -595,7 +902,12 @@ def get_awg_overview() -> dict[str, object]:
         item = dict(row)
         item.update(stats.get(row["public_key"], {"latest_handshake": 0, "rx": 0, "tx": 0}))
         item["latest_handshake_text"] = _format_handshake(int(item["latest_handshake"]))
+        item["rx_text"] = _format_bytes(int(item["rx"]))
+        item["tx_text"] = _format_bytes(int(item["tx"]))
         clients.append(item)
+    panel_pid = _service_main_pid("sg-awg-panel")
+    panel_rss = _process_rss(panel_pid)
+    endpoint_detected = "" if settings["endpoint_host"] else detect_public_ipv4()
     return {
         "installed": installed,
         "module_loaded": module_loaded,
@@ -605,5 +917,9 @@ def get_awg_overview() -> dict[str, object]:
         "settings": settings,
         "clients": clients,
         "external_interface_detected": detect_external_interface(),
+        "public_ipv4_detected": endpoint_detected,
+        "panel_rss": panel_rss,
+        "panel_rss_text": _format_bytes(panel_rss),
         "resources": _system_resources(),
     }
+

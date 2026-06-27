@@ -8,3 +8,4 @@ htmlcov/
 *.db-wal
 *.db-shm
 .env
+.test-venv/

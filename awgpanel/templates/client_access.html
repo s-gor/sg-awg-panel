@@ -1,13 +1,28 @@
 {% extends "base.html" %}
 {% block title %}{{ client.name }} · SG-AWG-Panel{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>{{ client.name }}</h1><p class="muted">Импортируйте конфигурацию в клиент с поддержкой AmneziaWG 2.0.</p></div><a class="button" href="{{ url_for('dashboard') }}">Назад</a></div>
+<div class="page-head">
+  <div>
+    <h1>{{ client.name }}</h1>
+    <p class="muted">Импортируйте конфигурацию в AmneziaVPN или другой клиент с поддержкой AmneziaWG 2.0.</p>
+  </div>
+  <a class="button" href="{{ url_for('dashboard') }}">Назад</a>
+</div>
 <section class="access-grid">
-  <div class="card qr"><img src="{{ qr_data }}" alt="QR-код"></div>
+  <div class="card qr">
+    <img src="{{ qr_data }}" alt="QR-код">
+    <p class="muted">На телефоне отсканируйте QR-код. На Windows скачайте файл .conf.</p>
+  </div>
   <div class="card">
-    <div class="actions"><a class="button primary" href="{{ url_for('client_download', client_id=client.id) }}">Скачать .conf</a></div>
+    <div class="section-head">
+      <div class="actions"><a class="button primary" href="{{ url_for('client_download', client_id=client.id) }}">Скачать .conf</a></div>
+      <form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" onsubmit="return confirm('Пересоздать ключи? Старый файл и QR-код сразу перестанут работать.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button danger" type="submit">Пересоздать ключи</button>
+      </form>
+    </div>
     <textarea rows="24" readonly>{{ config_text }}</textarea>
-    <p class="muted">Этот файл содержит закрытый ключ. Не публикуйте его.</p>
+    <p class="muted">Длинный текст вручную вставлять не нужно: используйте QR-код или файл .conf.</p>
   </div>
 </section>
 {% endblock %}

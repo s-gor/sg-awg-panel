@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import socket
-from collections.abc import Mapping
-
 MASKING_PROFILES: dict[str, dict[str, int]] = {
     "standard": {
         "jc": 6,
@@ -25,12 +23,30 @@ MASKING_PROFILES: dict[str, dict[str, int]] = {
 }
 
 MASKING_KEYS = (
-    "jc", "jmin", "jmax", "s1", "s2", "s3", "s4",
-    "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5",
+    "jc",
+    "jmin",
+    "jmax",
+    "s1",
+    "s2",
+    "s3",
+    "s4",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "i1",
+    "i2",
+    "i3",
+    "i4",
+    "i5",
 )
 
 CLIENT_CONFIG_KEYS = (
-    "endpoint_host", "listen_port", "server_network", "dns_servers", "mtu",
+    "endpoint_host",
+    "listen_port",
+    "server_network",
+    "dns_servers",
+    "mtu",
     *MASKING_KEYS,
 )
 
@@ -39,27 +55,38 @@ def _text(value: object) -> str:
     return str(value if value is not None else "").strip()
 
 
-def detect_masking_profile(settings: Mapping[str, object]) -> str:
+def _value(source: object, key: str, default: object = None) -> object:
+    """Read a key from dict, sqlite3.Row, or another mapping-like object."""
+    getter = getattr(source, "get", None)
+    if callable(getter):
+        return getter(key, default)
+
+    try:
+        return source[key]  # type: ignore[index]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def detect_masking_profile(settings: object) -> str:
     """Return the matching built-in profile or ``custom``.
 
     H1-H4 are deliberately random and therefore do not identify a profile.
     Any configured I1-I5 signature makes the result custom.
     """
-    if any(_text(settings.get(f"i{i}", "")) for i in range(1, 6)):
+    if any(_text(_value(settings, f"i{i}", "")) for i in range(1, 6)):
         return "custom"
 
     for name, values in MASKING_PROFILES.items():
-        if all(_text(settings.get(key)) == str(value) for key, value in values.items()):
+        if all(_text(_value(settings, key)) == str(value) for key, value in values.items()):
             return name
     return "custom"
 
 
-def server_change_summary(
-    current: Mapping[str, object], submitted: Mapping[str, object]
-) -> dict[str, object]:
+def server_change_summary(current: object, submitted: object) -> dict[str, object]:
     changed = tuple(
-        key for key in CLIENT_CONFIG_KEYS + ("external_interface",)
-        if _text(current.get(key)) != _text(submitted.get(key))
+        key
+        for key in CLIENT_CONFIG_KEYS + ("external_interface",)
+        if _text(_value(current, key)) != _text(_value(submitted, key))
     )
     return {
         "changed": changed,

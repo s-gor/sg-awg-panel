@@ -33,4 +33,5 @@ sg_awg_panel.egg-info/top_level.txt
 tests/test_core.py
 tests/test_installers.py
 tests/test_server_profiles.py
+tests/test_server_profiles_runtime.py
 tests/test_web.py

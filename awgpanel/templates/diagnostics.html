@@ -1,20 +1,23 @@
 {% extends "base.html" %}
 {% block section %}DIAGNOSTICS{% endblock %}
 {% block heading %}Diagnostics{% endblock %}
-{% block subtitle %}Службы, автозапуск, интерфейс, UDP-порт, NAT и журналы{% endblock %}
+{% block subtitle %}Службы, backend, HTTPS-прокси, автозапуск, UDP, NAT и восстановление после reboot{% endblock %}
 {% block content %}
 <section class="metric-grid four">
   <div class="metric-card"><span class="metric-label">WEB-ПАНЕЛЬ</span><strong>{{ diagnostics.panel_state }}</strong><small>uptime {{ diagnostics.panel_uptime }} · {{ diagnostics.panel_rss_text }}</small></div>
   <div class="metric-card"><span class="metric-label">AWG SERVER</span><strong>{{ diagnostics.service_state }}</strong><small>uptime {{ diagnostics.awg_uptime }} · awg0 {{ 'есть' if diagnostics.interface_present else 'нет' }}</small></div>
-  <div class="metric-card"><span class="metric-label">UDP {{ diagnostics.listen_port }}</span><strong>{{ 'listening' if diagnostics.udp.listening else 'closed' }}</strong><small>{{ diagnostics.udp.error or 'проверено через ss' }}</small></div>
-  <div class="metric-card"><span class="metric-label">ПОСЛЕ REBOOT</span><strong>{{ 'ready' if diagnostics.boot_ready else 'check' }}</strong><small>systemd + config + forwarding</small></div>
+  <div class="metric-card"><span class="metric-label">NGINX</span><strong>{{ diagnostics.nginx_state }}</strong><small>публичный вход · backend 127.0.0.1:{{ diagnostics.backend_port }}</small></div>
+  <div class="metric-card"><span class="metric-label">ПОСЛЕ REBOOT</span><strong>{{ 'ready' if diagnostics.boot_ready else 'check' }}</strong><small>recovery {{ diagnostics.recovery_state }}</small></div>
 </section>
 <section class="dashboard-grid">
   <article class="panel-card">
-    <div class="section-head"><div><h2>Проверка постоянной работы</h2><p class="muted">Эти пункты должны быть зелёными до тестовой перезагрузки сервера.</p></div><a class="button primary" href="{{ url_for('diagnostics_report') }}">Скачать отчёт</a></div>
+    <div class="section-head"><div><h2>Проверка постоянной работы</h2><p class="muted">Все пункты должны быть положительными до тестовой перезагрузки.</p></div><a class="button primary" href="{{ url_for('diagnostics_report') }}">Скачать отчёт</a></div>
     <div class="health-list">
       <div class="health-item"><span>Web-панель включена в systemd</span><strong class="{{ 'ok' if diagnostics.panel_enabled else 'bad' }}">{{ 'да' if diagnostics.panel_enabled else 'нет' }}</strong></div>
       <div class="health-item"><span>AWG-сервер включён в systemd</span><strong class="{{ 'ok' if diagnostics.awg_enabled else 'bad' }}">{{ 'да' if diagnostics.awg_enabled else 'нет' }}</strong></div>
+      <div class="health-item"><span>Nginx включён в systemd</span><strong class="{{ 'ok' if diagnostics.nginx_enabled else 'bad' }}">{{ 'да' if diagnostics.nginx_enabled else 'нет' }}</strong></div>
+      <div class="health-item"><span>Recovery service включена</span><strong class="{{ 'ok' if diagnostics.recovery_enabled else 'bad' }}">{{ 'да' if diagnostics.recovery_enabled else 'нет' }}</strong></div>
+      <div class="health-item"><span>Backend слушает только loopback</span><strong class="{{ 'ok' if diagnostics.backend.loopback_only else 'bad' }}">{{ 'да' if diagnostics.backend.loopback_only else 'нет' }}</strong></div>
       <div class="health-item"><span>Рабочий awg0.conf существует</span><strong class="{{ 'ok' if diagnostics.config_exists else 'bad' }}">{{ 'да' if diagnostics.config_exists else 'нет' }}</strong></div>
       <div class="health-item"><span>IPv4 forwarding</span><strong class="{{ 'ok' if diagnostics.ip_forward else 'bad' }}">{{ 'включён' if diagnostics.ip_forward else 'выключен' }}</strong></div>
       <div class="health-item"><span>NAT MASQUERADE сейчас установлен</span><strong class="{{ 'ok' if diagnostics.nat_rule else 'bad' }}">{{ 'да' if diagnostics.nat_rule else 'нет' }}</strong></div>
@@ -26,6 +29,7 @@
     <div class="key-values one-column">
       <div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or 'не определён' }}</strong></div>
       <div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div>
+      <div><span>Backend</span><strong>127.0.0.1:{{ diagnostics.backend_port }}</strong></div>
       <div><span>Память панели</span><strong>{{ diagnostics.panel_rss_text }}</strong></div>
       <div><span>Память системы</span><strong>{{ diagnostics.resources.memory_percent }}%</strong></div>
       <div><span>Load average</span><strong>{{ diagnostics.resources.load1 }} / {{ diagnostics.resources.load5 }} / {{ diagnostics.resources.load15 }}</strong></div>
@@ -34,5 +38,5 @@
   </article>
 </section>
 {% if diagnostics.udp.lines %}<section class="panel-card"><h2>UDP listener</h2><pre>{{ diagnostics.udp.lines|join('\n') }}</pre></section>{% endif %}
-<section class="panel-card"><details open><summary>Журнал AmneziaWG</summary><pre class="log-output">{{ diagnostics.server_logs }}</pre></details><details><summary>Журнал web-панели</summary><pre class="log-output">{{ diagnostics.panel_logs }}</pre></details></section>
+<section class="panel-card"><details open><summary>Журнал AmneziaWG</summary><pre class="log-output">{{ diagnostics.server_logs }}</pre></details><details><summary>Журнал web-панели</summary><pre class="log-output">{{ diagnostics.panel_logs }}</pre></details><details><summary>Журнал Nginx</summary><pre class="log-output">{{ diagnostics.nginx_logs }}</pre></details><details><summary>Журнал recovery после reboot</summary><pre class="log-output">{{ diagnostics.recovery_logs }}</pre></details></section>
 {% endblock %}

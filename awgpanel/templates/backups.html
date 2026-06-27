@@ -1,8 +1,35 @@
 {% extends "base.html" %}
 {% block section %}BACKUPS{% endblock %}
 {% block heading %}Резервные копии{% endblock %}
-{% block subtitle %}SQLite-база и awg0.conf перед изменениями и автоматически раз в сутки{% endblock %}
+{% block subtitle %}Расписание, срок хранения и восстановление состояния{% endblock %}
 {% block content %}
-<section class="panel-card info-card"><div class="section-head"><div><h2>Автоматическая защита</h2><p class="muted">Таймер systemd создаёт копию ежедневно. Пропущенный запуск выполняется после включения сервера. Хранятся последние 20 копий.</p></div><span class="pill success">DAILY TIMER</span></div></section>
-<section class="panel-card"><div class="section-head"><div><h2>Копии состояния</h2><p class="muted">При восстановлении сначала автоматически создаётся ещё одна страховочная копия.</p></div><form method="post" action="{{ url_for('backup_create') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit">Создать сейчас</button></form></div><div class="table-wrap"><table><thead><tr><th>Копия</th><th>Причина</th><th>Состояние AWG</th><th>Действие</th></tr></thead><tbody>{% for backup in backups %}<tr><td><code>{{ backup.name }}</code></td><td>{{ backup.reason or '—' }}</td><td>{{ backup.service_state or '—' }}</td><td><form method="post" action="{{ url_for('backup_restore', name=backup.name) }}" onsubmit="return confirm('Восстановить эту копию? Текущее состояние будет сохранено отдельно.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Восстановить</button></form></td></tr>{% else %}<tr><td colspan="4" class="empty">Резервных копий пока нет.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="dashboard-grid">
+  <article class="panel-card">
+    <h2>Автоматические копии</h2>
+    <form method="post" action="{{ url_for('backup_policy_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Расписание
+        <select name="backup_schedule">
+          <option value="hourly" {{ 'selected' if panel.backup_schedule == 'hourly' else '' }}>Каждый час</option>
+          <option value="every_6_hours" {{ 'selected' if panel.backup_schedule == 'every_6_hours' else '' }}>Каждые 6 часов</option>
+          <option value="daily" {{ 'selected' if panel.backup_schedule == 'daily' else '' }}>Ежедневно</option>
+          <option value="weekly" {{ 'selected' if panel.backup_schedule == 'weekly' else '' }}>Раз в неделю</option>
+          <option value="disabled" {{ 'selected' if panel.backup_schedule == 'disabled' else '' }}>Выключено</option>
+        </select>
+      </label>
+      <label>Хранить последних копий<input type="number" name="backup_keep" min="1" max="365" value="{{ panel.backup_keep }}" required></label>
+      <button class="button primary" type="submit">Сохранить расписание</button>
+    </form>
+  </article>
+  <article class="panel-card info-card">
+    <h2>Что сохраняется</h2>
+    <div class="key-values one-column">
+      <div><span>SQLite</span><strong>пользователи и настройки</strong></div>
+      <div><span>AWG</span><strong>рабочий awg0.conf</strong></div>
+      <div><span>Перед изменениями</span><strong>страховочная копия</strong></div>
+      <div><span>Persistent timer</span><strong>пропущенный запуск после boot</strong></div>
+    </div>
+  </article>
+</section>
+<section class="panel-card"><div class="section-head"><div><h2>Копии состояния</h2><p class="muted">Перед восстановлением автоматически создаётся ещё одна страховочная копия.</p></div><form method="post" action="{{ url_for('backup_create') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit">Создать сейчас</button></form></div><div class="table-wrap"><table><thead><tr><th>Копия</th><th>Причина</th><th>Состояние AWG</th><th>Действие</th></tr></thead><tbody>{% for backup in backups %}<tr><td><code>{{ backup.name }}</code></td><td>{{ backup.reason or '—' }}</td><td>{{ backup.service_state or '—' }}</td><td><form method="post" action="{{ url_for('backup_restore', name=backup.name) }}" onsubmit="return confirm('Восстановить эту копию? Текущее состояние будет сохранено отдельно.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Восстановить</button></form></td></tr>{% else %}<tr><td colspan="4" class="empty">Резервных копий пока нет.</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

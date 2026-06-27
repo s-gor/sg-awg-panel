@@ -6,7 +6,7 @@ body:
   - type: input
     attributes:
       label: Версия SG-AWG-Panel
-      placeholder: v0.1.0-alpha6
+      placeholder: v0.1.0-alpha7
     validations:
       required: true
   - type: input

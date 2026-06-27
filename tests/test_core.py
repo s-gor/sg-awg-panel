@@ -308,3 +308,46 @@ def test_client_empty_dns_and_mtu_inherit_server(tmp_path, monkeypatch):
     text = core.render_awg_client_config(client["id"])
     assert "DNS = 1.0.0.1" in text
     assert "MTU = 1280" in text
+
+
+def test_panel_security_defaults_and_backend_loopback(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    panel = core.get_panel_settings()
+    assert panel["backend_address"] == "127.0.0.1"
+    assert panel["backend_port"] == 18080
+    assert panel["public_port"] == 8080
+    assert panel["backup_schedule"] == "daily"
+
+
+def test_ip_allowlist_validation_prevents_lockout(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    assert core.normalize_ip_allowlist("203.0.113.10, 198.51.100.0/24") == (
+        "203.0.113.10/32, 198.51.100.0/24"
+    )
+    updated = core.update_ip_allowlist(
+        "203.0.113.10, 198.51.100.0/24", current_ip="203.0.113.10"
+    )
+    assert core.ip_is_allowed("198.51.100.20", updated["ip_allowlist"])
+    try:
+        core.update_ip_allowlist("192.0.2.0/24", current_ip="203.0.113.10")
+    except ValueError as exc:
+        assert "не входит" in str(exc)
+    else:
+        raise AssertionError("allowlist accepted a configuration that locks out current IP")
+
+
+def test_server_side_sessions_can_be_revoked(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    token = "session-token"
+    core.create_web_session(token, ip_address="203.0.113.10", user_agent="pytest")
+    assert core.validate_web_session(token, touch=False) is not None
+    sessions = core.list_web_sessions(current_token=token)
+    assert len(sessions) == 1 and sessions[0]["current"] is True
+    core.revoke_web_session(sessions[0]["token_hash"])
+    assert core.validate_web_session(token, touch=False) is None
+
+
+def test_update_version_ordering():
+    assert core._version_key("v0.1.0-alpha7") > core._version_key("v0.1.0-alpha6")
+    assert core._version_key("v0.1.0-beta1") > core._version_key("v0.1.0-alpha99")
+    assert core._version_key("v0.1.0") > core._version_key("v0.1.0-rc9")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -12,6 +13,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -375,7 +377,7 @@ def _backup_state(reason: str) -> Path:
     os.chmod(target / "metadata.json", 0o600)
 
     backups = sorted((item for item in BACKUP_DIR.iterdir() if item.is_dir()), reverse=True)
-    for old in backups[max(1, BACKUP_KEEP):]:
+    for old in backups[max(1, _backup_keep_value()):]:
         shutil.rmtree(old, ignore_errors=True)
     return target
 
@@ -1126,6 +1128,11 @@ def build_diagnostic_report() -> str:
         f"Panel enabled at boot: {diagnostics['panel_enabled']}",
         f"Panel uptime: {diagnostics['panel_uptime']}",
         f"Panel RSS: {diagnostics['panel_rss_text']}",
+        f"Nginx state: {diagnostics.get('nginx_state', 'unknown')}",
+        f"Nginx enabled at boot: {diagnostics.get('nginx_enabled', False)}",
+        f"Recovery service: {diagnostics.get('recovery_state', 'unknown')}",
+        f"Recovery enabled at boot: {diagnostics.get('recovery_enabled', False)}",
+        f"Backend loopback only: {diagnostics.get('backend', {}).get('loopback_only', False)}",
         f"Kernel module loaded: {diagnostics['module_loaded']}",
         f"AWG tools installed: {diagnostics['installed']}",
         f"Interface present: {diagnostics['interface_present']}",
@@ -1151,26 +1158,53 @@ def build_diagnostic_report() -> str:
     return "\n".join(lines)
 
 
+def _tcp_listener(port: int) -> dict[str, object]:
+    ss = _command_path("ss")
+    if not ss:
+        return {"listening": False, "loopback_only": False, "lines": []}
+    result = _run([ss, "-H", "-ltnp"], timeout=10)
+    marker = f":{port}"
+    lines = [line for line in result.stdout.splitlines() if marker in line]
+    loopback_only = bool(lines) and all(
+        ("127.0.0.1:" in line or "[::1]:" in line or "::1:" in line) for line in lines
+    )
+    return {"listening": bool(lines), "loopback_only": loopback_only, "lines": lines}
+
+
 def get_awg_diagnostics() -> dict[str, object]:
     settings = get_awg_settings()
+    panel_settings = get_panel_settings()
     state = awg_service_state()
     panel_state = _run(["systemctl", "is-active", "sg-awg-panel"]).stdout.strip() or "inactive"
+    nginx_state = _run(["systemctl", "is-active", "nginx"]).stdout.strip() or "inactive"
+    recovery_state = _run(["systemctl", "is-active", "sg-awg-recovery"]).stdout.strip() or "inactive"
     panel_pid = _service_main_pid("sg-awg-panel")
     panel_rss = _process_rss(panel_pid)
     listen_port = int(settings["listen_port"] or 585)
+    backend_port = int(panel_settings["backend_port"] or 18080)
     panel_enabled = _systemctl_enabled("sg-awg-panel")
     awg_enabled = _systemctl_enabled(AWG_SERVICE)
+    nginx_enabled = _systemctl_enabled("nginx")
+    recovery_enabled = _systemctl_enabled("sg-awg-recovery")
     ip_forward = _ip_forward_enabled()
     nat_rule = _nat_rule_present(settings)
     config_exists = AWG_CONFIG_PATH.exists()
     interface_present = Path(f"/sys/class/net/{settings['interface_name']}").exists()
     udp = _udp_listener(listen_port)
-    boot_ready = bool(panel_enabled and awg_enabled and config_exists and ip_forward)
+    backend = _tcp_listener(backend_port)
+    boot_ready = bool(
+        panel_enabled and awg_enabled and nginx_enabled and recovery_enabled
+        and config_exists and ip_forward and backend["loopback_only"]
+    )
     return {
         "service_state": state,
         "panel_state": panel_state,
+        "nginx_state": nginx_state,
+        "recovery_state": recovery_state,
         "panel_enabled": panel_enabled,
         "awg_enabled": awg_enabled,
+        "nginx_enabled": nginx_enabled,
+        "recovery_enabled": recovery_enabled,
         "panel_uptime": _service_uptime("sg-awg-panel"),
         "awg_uptime": _service_uptime(AWG_SERVICE),
         "module_loaded": Path("/sys/module/amneziawg").exists(),
@@ -1179,6 +1213,8 @@ def get_awg_diagnostics() -> dict[str, object]:
         "external_interface": detect_external_interface(),
         "public_ipv4": detect_public_ipv4(force=True),
         "udp": udp,
+        "backend": backend,
+        "backend_port": backend_port,
         "listen_port": listen_port,
         "config_path": str(AWG_CONFIG_PATH),
         "config_exists": config_exists,
@@ -1191,7 +1227,10 @@ def get_awg_diagnostics() -> dict[str, object]:
         "resources": _system_resources(),
         "server_logs": _service_logs(AWG_SERVICE),
         "panel_logs": _service_logs("sg-awg-panel"),
+        "nginx_logs": _service_logs("nginx"),
+        "recovery_logs": _service_logs("sg-awg-recovery"),
         "backups": list_backups(),
+        "panel_settings": panel_settings,
     }
 
 
@@ -1237,3 +1276,505 @@ def get_awg_overview() -> dict[str, object]:
         "latest_backup": backups[0] if backups else None,
     }
 
+
+# ---------------------------------------------------------------------------
+# Panel administration: access, sessions, audit log, backups and updates.
+# ---------------------------------------------------------------------------
+
+PANEL_SERVICE = os.environ.get("AWGPANEL_PANEL_SERVICE", "sg-awg-panel")
+PANEL_PROJECT_DIR = Path(os.environ.get("AWGPANEL_PROJECT_DIR", "/opt/sg-awg-panel"))
+PANEL_ENV_FILE = Path(os.environ.get("AWGPANEL_ENV_FILE", "/etc/sg-awg-panel/web.env"))
+UPDATE_STATUS_PATH = Path(
+    os.environ.get("AWGPANEL_UPDATE_STATUS", "/var/lib/sg-awg-panel/update-status.json")
+)
+UPDATE_LOG_PATH = Path(
+    os.environ.get("AWGPANEL_UPDATE_LOG", "/var/lib/sg-awg-panel/update.log")
+)
+UPDATE_REPOSITORY = "s-gor/sg-awg-panel"
+
+_BACKUP_CALENDARS = {
+    "hourly": "hourly",
+    "every_6_hours": "*-*-* 00,06,12,18:00:00",
+    "daily": "daily",
+    "weekly": "Sun *-*-* 03:00:00",
+    "disabled": "",
+}
+
+
+def get_panel_settings():
+    init_db()
+    with connect() as con:
+        row = con.execute("SELECT * FROM panel_settings WHERE id=1").fetchone()
+    if row is None:
+        raise AWGPanelError("Настройки панели не найдены")
+    return row
+
+
+def _backup_keep_value() -> int:
+    try:
+        return max(1, min(365, int(get_panel_settings()["backup_keep"])))
+    except (AWGPanelError, KeyError, TypeError, ValueError):
+        return max(1, BACKUP_KEEP)
+
+
+def _normalize_domain(value: object, *, allow_empty: bool = True) -> str:
+    raw = str(value or "").strip().rstrip(".")
+    if not raw and allow_empty:
+        return ""
+    if not raw:
+        raise ValueError("Укажите домен панели")
+    try:
+        ascii_name = raw.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("Некорректный домен панели") from exc
+    if len(ascii_name) > 253:
+        raise ValueError("Домен панели слишком длинный")
+    labels = ascii_name.split(".")
+    if len(labels) < 2 or any(
+        not label
+        or len(label) > 63
+        or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+        for label in labels
+    ):
+        raise ValueError("Укажите полное доменное имя, например awg.example.com")
+    return ascii_name
+
+
+def _normalize_email(value: object, *, required: bool = False) -> str:
+    raw = str(value or "").strip()
+    if not raw and not required:
+        return ""
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", raw):
+        raise ValueError("Укажите корректный e-mail для Let's Encrypt")
+    return raw
+
+
+def _normalize_port(value: object, field: str = "Порт") -> int:
+    try:
+        port = int(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(f"{field}: укажите число") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{field}: допустимы значения 1–65535")
+    return port
+
+
+def _env_quote(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_./:@+-]*", value):
+        return value
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def write_env_values(values: dict[str, object]) -> None:
+    _require_root()
+    lines = PANEL_ENV_FILE.read_text(encoding="utf-8").splitlines() if PANEL_ENV_FILE.exists() else []
+    pending = {key: str(value) for key, value in values.items()}
+    output: list[str] = []
+    for line in lines:
+        key = line.split("=", 1)[0] if "=" in line else ""
+        if key in pending:
+            output.append(f"{key}={_env_quote(pending.pop(key))}")
+        else:
+            output.append(line)
+    for key, value in pending.items():
+        output.append(f"{key}={_env_quote(value)}")
+    PANEL_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PANEL_ENV_FILE.write_text("\n".join(output) + "\n", encoding="utf-8")
+    os.chmod(PANEL_ENV_FILE, 0o600)
+
+
+def panel_public_url(settings=None) -> str:
+    settings = settings or get_panel_settings()
+    scheme = str(settings["public_scheme"])
+    host = str(settings["public_host"] or "SERVER_IP")
+    port = int(settings["public_port"])
+    default = 443 if scheme == "https" else 80
+    suffix = "" if port == default else f":{port}"
+    return f"{scheme}://{host}{suffix}"
+
+
+def configure_panel_access(
+    *, scheme: str, public_host: str, public_port: object, https_email: str = ""
+):
+    _require_root()
+    scheme = str(scheme).strip().lower()
+    if scheme not in {"http", "https"}:
+        raise ValueError("Режим панели должен быть HTTP или HTTPS")
+    port = _normalize_port(public_port, "Публичный порт панели")
+    host = _normalize_domain(public_host, allow_empty=scheme == "http")
+    email = _normalize_email(https_email, required=scheme == "https")
+    if scheme == "https" and not host:
+        raise ValueError("Для HTTPS требуется домен")
+
+    script = PANEL_PROJECT_DIR / "deploy" / "configure-panel-access.sh"
+    if not script.exists():
+        raise AWGPanelError(f"Скрипт настройки доступа не найден: {script}")
+    args = [
+        "/bin/bash",
+        str(script),
+        "--scheme",
+        scheme,
+        "--port",
+        str(port),
+    ]
+    if host:
+        args += ["--domain", host]
+    if email:
+        args += ["--email", email]
+    unit = f"sg-awg-panel-access-{uuid.uuid4().hex[:8]}"
+    result = _run(
+        ["systemd-run", "--wait", "--pipe", "--collect", f"--unit={unit}", *args],
+        timeout=1200,
+    )
+    if result.returncode != 0:
+        raise AWGPanelError(
+            result.stderr.strip() or result.stdout.strip() or "Не удалось настроить доступ к панели"
+        )
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE panel_settings
+            SET public_scheme=?, public_host=?, public_port=?, https_email=?,
+                https_enabled=?, backend_address='127.0.0.1', backend_port=18080,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """,
+            (scheme, host, port, email, 1 if scheme == "https" else 0),
+        )
+    return get_panel_settings()
+
+
+def normalize_ip_allowlist(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    networks: list[str] = []
+    for item in re.split(r"[,\n\r]+", raw):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            if "/" not in item:
+                address = ipaddress.ip_address(item)
+                item = f"{address}/{32 if address.version == 4 else 128}"
+            network = ipaddress.ip_network(item, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"Некорректный IP или CIDR: {item}") from exc
+        networks.append(str(network))
+    if len(networks) > 64:
+        raise ValueError("Разрешено не более 64 сетей в IP allowlist")
+    return ", ".join(dict.fromkeys(networks))
+
+
+def ip_is_allowed(ip_value: str, allowlist: str | None = None) -> bool:
+    allowlist = str(get_panel_settings()["ip_allowlist"] if allowlist is None else allowlist)
+    if not allowlist.strip():
+        return True
+    try:
+        address = ipaddress.ip_address(ip_value)
+    except ValueError:
+        return False
+    for item in allowlist.split(","):
+        try:
+            if address in ipaddress.ip_network(item.strip(), strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def update_ip_allowlist(value: object, *, current_ip: str):
+    _require_root()
+    normalized = normalize_ip_allowlist(value)
+    if normalized and not ip_is_allowed(current_ip, normalized):
+        raise ValueError(
+            f"Текущий IP {current_ip} не входит в новый allowlist. Добавьте его, чтобы не потерять доступ."
+        )
+    with connect() as con:
+        con.execute(
+            "UPDATE panel_settings SET ip_allowlist=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            (normalized,),
+        )
+    return get_panel_settings()
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_web_session(token: str, *, ip_address: str, user_agent: str) -> None:
+    settings = get_panel_settings()
+    with connect() as con:
+        con.execute(
+            """
+            INSERT INTO web_sessions
+                (token_hash, auth_epoch, ip_address, user_agent, created_at, last_seen_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (_token_hash(token), int(settings["auth_epoch"]), ip_address[:128], user_agent[:512]),
+        )
+        con.execute(
+            "DELETE FROM web_sessions WHERE revoked_at IS NOT NULL OR last_seen_at < datetime('now','-30 days')"
+        )
+
+
+def validate_web_session(token: str, *, touch: bool = True):
+    if not token:
+        return None
+    settings = get_panel_settings()
+    with connect() as con:
+        row = con.execute(
+            "SELECT * FROM web_sessions WHERE token_hash=? AND revoked_at IS NULL",
+            (_token_hash(token),),
+        ).fetchone()
+        if row is None or int(row["auth_epoch"]) != int(settings["auth_epoch"]):
+            return None
+        if touch:
+            con.execute(
+                "UPDATE web_sessions SET last_seen_at=CURRENT_TIMESTAMP WHERE token_hash=?",
+                (_token_hash(token),),
+            )
+    return row
+
+
+def revoke_web_session(token_hash: str) -> None:
+    with connect() as con:
+        con.execute(
+            "UPDATE web_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE token_hash=?",
+            (token_hash,),
+        )
+
+
+def revoke_all_web_sessions(*, except_token: str = "") -> None:
+    with connect() as con:
+        if except_token:
+            con.execute(
+                "UPDATE web_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE token_hash<>? AND revoked_at IS NULL",
+                (_token_hash(except_token),),
+            )
+        else:
+            con.execute(
+                "UPDATE web_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE revoked_at IS NULL"
+            )
+
+
+def rotate_auth_epoch(*, keep_token: str = "") -> int:
+    with connect() as con:
+        con.execute(
+            "UPDATE panel_settings SET auth_epoch=auth_epoch+1, updated_at=CURRENT_TIMESTAMP WHERE id=1"
+        )
+        epoch = int(con.execute("SELECT auth_epoch FROM panel_settings WHERE id=1").fetchone()[0])
+        con.execute(
+            "UPDATE web_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE revoked_at IS NULL"
+        )
+        if keep_token:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO web_sessions
+                    (token_hash, auth_epoch, ip_address, user_agent, created_at, last_seen_at, revoked_at)
+                VALUES (?, ?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+                """,
+                (_token_hash(keep_token), epoch),
+            )
+    return epoch
+
+
+def list_web_sessions(*, current_token: str = ""):
+    current_hash = _token_hash(current_token) if current_token else ""
+    with connect() as con:
+        rows = con.execute(
+            """
+            SELECT token_hash, ip_address, user_agent, created_at, last_seen_at
+            FROM web_sessions
+            WHERE revoked_at IS NULL
+            ORDER BY last_seen_at DESC
+            """
+        ).fetchall()
+    return [dict(row) | {"current": row["token_hash"] == current_hash} for row in rows]
+
+
+def record_auth_event(
+    event_type: str, *, ip_address: str = "", user_agent: str = "", detail: str = ""
+) -> None:
+    with connect() as con:
+        con.execute(
+            """
+            INSERT INTO auth_events(event_type, ip_address, user_agent, detail)
+            VALUES (?, ?, ?, ?)
+            """,
+            (event_type[:64], ip_address[:128], user_agent[:512], detail[:512]),
+        )
+        con.execute(
+            "DELETE FROM auth_events WHERE id NOT IN (SELECT id FROM auth_events ORDER BY id DESC LIMIT 1000)"
+        )
+
+
+def list_auth_events(*, limit: int = 100):
+    limit = max(1, min(500, int(limit)))
+    with connect() as con:
+        return con.execute(
+            "SELECT * FROM auth_events ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def configure_backup_policy(schedule: str, keep: object):
+    _require_root()
+    schedule = str(schedule).strip()
+    if schedule not in _BACKUP_CALENDARS:
+        raise ValueError("Недопустимое расписание резервных копий")
+    try:
+        keep_value = int(str(keep).strip())
+    except ValueError as exc:
+        raise ValueError("Количество копий должно быть числом") from exc
+    if not 1 <= keep_value <= 365:
+        raise ValueError("Хранить можно от 1 до 365 резервных копий")
+    previous = get_panel_settings()
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE panel_settings SET backup_schedule=?, backup_keep=?,
+                updated_at=CURRENT_TIMESTAMP WHERE id=1
+            """,
+            (schedule, keep_value),
+        )
+    script = PANEL_PROJECT_DIR / "deploy" / "install-backup-timer.sh"
+    unit = f"sg-awg-backup-policy-{uuid.uuid4().hex[:8]}"
+    result = _run(
+        ["systemd-run", "--wait", "--pipe", "--collect", f"--unit={unit}", "/bin/bash", str(script)],
+        timeout=60,
+    )
+    if result.returncode != 0:
+        with connect() as con:
+            con.execute(
+                "UPDATE panel_settings SET backup_schedule=?, backup_keep=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (previous["backup_schedule"], previous["backup_keep"]),
+            )
+        raise AWGPanelError(result.stderr.strip() or "Не удалось обновить таймер копий")
+    return get_panel_settings()
+
+
+def backup_calendar(schedule: str | None = None) -> str:
+    if schedule is None:
+        schedule = str(get_panel_settings()["backup_schedule"])
+    return _BACKUP_CALENDARS.get(schedule, "daily")
+
+
+def _version_key(value: str) -> tuple[int, int, int, int, int]:
+    match = re.fullmatch(
+        r"v?(\d+)\.(\d+)\.(\d+)(?:[-.]?(alpha|beta|rc)(\d+))?", value.strip(), re.I
+    )
+    if not match:
+        return (-1, -1, -1, -1, -1)
+    major, minor, patch = (int(match.group(i)) for i in range(1, 4))
+    label = (match.group(4) or "stable").lower()
+    rank = {"alpha": 0, "beta": 1, "rc": 2, "stable": 3}[label]
+    number = int(match.group(5) or 0)
+    return (major, minor, patch, rank, number)
+
+
+def check_for_updates(*, force: bool = False) -> dict[str, object]:
+    from . import __version__
+
+    current = f"v{__version__}"
+    settings = get_panel_settings()
+    checked_at = str(settings["latest_checked_at"] or "")
+    if not force and checked_at and str(settings["latest_version"]):
+        try:
+            checked = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - checked).total_seconds() < 900:
+                latest = str(settings["latest_version"])
+                return {
+                    "current": current,
+                    "latest": latest,
+                    "available": _version_key(latest) > _version_key(current),
+                    "checked_at": checked_at,
+                    "error": str(settings["latest_error"] or ""),
+                }
+        except ValueError:
+            pass
+
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{UPDATE_REPOSITORY}/tags?per_page=100",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "SG-AWG-Panel"},
+    )
+    latest = ""
+    error = ""
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:  # nosec B310
+            payload = json.loads(response.read(256_000).decode("utf-8"))
+        tags = [str(item.get("name", "")) for item in payload if isinstance(item, dict)]
+        if str(settings["update_channel"]) == "stable":
+            tags = [tag for tag in tags if _version_key(tag)[3] == 3]
+        valid = [tag for tag in tags if _version_key(tag)[0] >= 0]
+        latest = max(valid, key=_version_key) if valid else current
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+        error = str(exc)
+        latest = str(settings["latest_version"] or current)
+    stamp = datetime.now(timezone.utc).isoformat()
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE panel_settings SET latest_version=?, latest_checked_at=?, latest_error=?,
+                updated_at=CURRENT_TIMESTAMP WHERE id=1
+            """,
+            (latest, stamp, error),
+        )
+    return {
+        "current": current,
+        "latest": latest,
+        "available": not error and _version_key(latest) > _version_key(current),
+        "checked_at": stamp,
+        "error": error,
+    }
+
+
+def start_panel_update(version: str) -> dict[str, str]:
+    _require_root()
+    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\d+)?", version):
+        raise ValueError("Некорректная версия обновления")
+    if _run(["systemctl", "is-active", "sg-awg-panel-update.service"]).returncode == 0:
+        raise AWGPanelError("Обновление уже выполняется")
+    UPDATE_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    UPDATE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    UPDATE_STATUS_PATH.write_text(
+        json.dumps({"state": "starting", "version": version, "started_at": datetime.now(timezone.utc).isoformat()}) + "\n",
+        encoding="utf-8",
+    )
+    script = PANEL_PROJECT_DIR / "deploy" / "update-from-github.sh"
+    unit = "sg-awg-panel-update.service"
+    command = [
+        "systemd-run",
+        "--unit=sg-awg-panel-update",
+        "--collect",
+        "--property=Type=oneshot",
+        f"--setenv=SG_AWG_PANEL_VERSION={version}",
+        f"--setenv=SG_AWG_PANEL_UPDATE_STATUS={UPDATE_STATUS_PATH}",
+        f"--setenv=SG_AWG_PANEL_UPDATE_LOG={UPDATE_LOG_PATH}",
+        "/bin/bash",
+        str(script),
+    ]
+    result = _run(command, timeout=20)
+    if result.returncode != 0:
+        raise AWGPanelError(result.stderr.strip() or result.stdout.strip() or "Не удалось запустить обновление")
+    return {"unit": unit, "version": version}
+
+
+def get_update_status() -> dict[str, object]:
+    data: dict[str, object] = {"state": "idle", "version": "", "message": ""}
+    if UPDATE_STATUS_PATH.exists():
+        try:
+            loaded = json.loads(UPDATE_STATUS_PATH.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data.update(loaded)
+        except (OSError, json.JSONDecodeError):
+            data["state"] = "unknown"
+    unit_state = _run(["systemctl", "is-active", "sg-awg-panel-update.service"]).stdout.strip()
+    data["unit_state"] = unit_state or "inactive"
+    if UPDATE_LOG_PATH.exists():
+        try:
+            data["log"] = UPDATE_LOG_PATH.read_text(encoding="utf-8", errors="replace")[-12_000:]
+        except OSError:
+            data["log"] = ""
+    else:
+        data["log"] = ""
+    return data

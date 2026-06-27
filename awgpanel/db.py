@@ -63,6 +63,50 @@ CREATE TABLE IF NOT EXISTS awg_clients (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS panel_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    public_scheme TEXT NOT NULL DEFAULT 'http' CHECK (public_scheme IN ('http', 'https')),
+    public_host TEXT NOT NULL DEFAULT '',
+    public_port INTEGER NOT NULL DEFAULT 8080 CHECK (public_port BETWEEN 1 AND 65535),
+    backend_address TEXT NOT NULL DEFAULT '127.0.0.1',
+    backend_port INTEGER NOT NULL DEFAULT 18080 CHECK (backend_port BETWEEN 1 AND 65535),
+    https_email TEXT NOT NULL DEFAULT '',
+    https_enabled INTEGER NOT NULL DEFAULT 0 CHECK (https_enabled IN (0, 1)),
+    ip_allowlist TEXT NOT NULL DEFAULT '',
+    backup_schedule TEXT NOT NULL DEFAULT 'daily',
+    backup_keep INTEGER NOT NULL DEFAULT 20 CHECK (backup_keep BETWEEN 1 AND 365),
+    update_channel TEXT NOT NULL DEFAULT 'prerelease' CHECK (update_channel IN ('prerelease', 'stable')),
+    latest_version TEXT NOT NULL DEFAULT '',
+    latest_checked_at TEXT,
+    latest_error TEXT NOT NULL DEFAULT '',
+    auth_epoch INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS web_sessions (
+    token_hash TEXT PRIMARY KEY,
+    auth_epoch INTEGER NOT NULL DEFAULT 1,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_web_sessions_active
+ON web_sessions(revoked_at, last_seen_at);
+
+CREATE INDEX IF NOT EXISTS idx_auth_events_created
+ON auth_events(created_at DESC);
 """
 
 
@@ -127,5 +171,15 @@ def init_db() -> None:
                 isolate_clients
             ) VALUES (1, 0, 'awg0', '', 585, '10.77.0.0/24',
                       '1.1.1.1, 1.0.0.1', 1280, '', 1)
+            """
+        )
+        con.execute(
+            """
+            INSERT OR IGNORE INTO panel_settings (
+                id, public_scheme, public_host, public_port,
+                backend_address, backend_port, https_enabled,
+                backup_schedule, backup_keep, update_channel, auth_epoch
+            ) VALUES (1, 'http', '', 8080, '127.0.0.1', 18080,
+                      0, 'daily', 20, 'prerelease', 1)
             """
         )

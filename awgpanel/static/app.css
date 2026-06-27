@@ -276,3 +276,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border: 1px
   .login-brand-copy h1 { font-size: 27px; }
   .actions form, .actions .button, .action-row .button { width: 100%; }
 }
+
+/* Alpha 7 administration tables */
+.truncate-cell { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inline-note { margin: -3px 0 14px; color: var(--muted); font-size: 12px; }

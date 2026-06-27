@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import os
 import secrets
+import subprocess
 import threading
 import time
+from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 
@@ -30,6 +33,9 @@ from .core import (
     add_awg_client,
     build_diagnostic_report,
     configure_and_start_awg,
+    configure_backup_policy,
+    configure_panel_access,
+    create_web_session,
     create_manual_backup,
     delete_awg_client,
     find_awg_client,
@@ -37,22 +43,36 @@ from .core import (
     get_awg_diagnostics,
     get_awg_overview,
     get_awg_settings,
+    get_panel_settings,
+    get_update_status,
     list_awg_clients,
+    list_auth_events,
     list_backups,
+    list_web_sessions,
+    panel_public_url,
+    record_auth_event,
     record_client_access,
     regenerate_awg_client,
     regenerate_client_access_token,
     render_awg_client_config,
     restart_awg,
+    revoke_all_web_sessions,
+    revoke_web_session,
+    rotate_auth_epoch,
     restore_backup,
     set_awg_client_enabled,
     set_client_access_enabled,
     start_awg,
+    start_panel_update,
     stop_awg,
     update_awg_client_routing,
     update_awg_client_settings,
     update_dns_servers,
+    update_ip_allowlist,
     update_routing_settings,
+    validate_web_session,
+    check_for_updates,
+    ip_is_allowed,
 )
 from .db import init_db
 from .errors import AWGPanelError
@@ -96,6 +116,7 @@ def create_app() -> Flask:
         SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=_bool_env("AWGPANEL_SECURE_COOKIES", False),
         MAX_CONTENT_LENGTH=256 * 1024,
+        PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     )
     if _bool_env("AWGPANEL_TRUST_PROXY_HEADERS", False):
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[assignment]
@@ -106,10 +127,18 @@ def create_app() -> Flask:
     login_window = 15 * 60
     login_limit = 5
 
+    def client_ip() -> str:
+        return request.remote_addr or "unknown"
+
+    def client_agent() -> str:
+        return request.headers.get("User-Agent", "")[:512]
+
     def login_required(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
-            if not session.get("authenticated"):
+            token = str(session.get("session_token", ""))
+            if not session.get("authenticated") or validate_web_session(token) is None:
+                session.clear()
                 return redirect(url_for("login", next=request.path))
             return view(*args, **kwargs)
 
@@ -129,7 +158,8 @@ def create_app() -> Flask:
             abort(400, "CSRF token mismatch")
 
     def access_rows() -> list[dict[str, object]]:
-        base = request.host_url.rstrip("/")
+        panel = get_panel_settings()
+        base = panel_public_url(panel) if panel["public_host"] else request.host_url.rstrip("/")
         rows: list[dict[str, object]] = []
         for row in list_awg_clients():
             item = dict(row)
@@ -140,45 +170,78 @@ def create_app() -> Flask:
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["panel_version"] = __version__
 
+    @app.before_request
+    def enforce_panel_allowlist():
+        if request.endpoint in {"static", "health", "public_client_config"}:
+            return None
+        ip_value = client_ip()
+        if not ip_is_allowed(ip_value):
+            record_auth_event(
+                "allowlist_denied", ip_address=ip_value,
+                user_agent=client_agent(), detail=request.path,
+            )
+            abort(403, "Этот IP не входит в allowlist панели")
+        return None
+
     @app.get("/login")
     def login():
-        if session.get("authenticated"):
+        if session.get("authenticated") and validate_web_session(
+            str(session.get("session_token", "")), touch=False
+        ) is not None:
             return redirect(url_for("dashboard"))
+        if request.args.get("password_changed") == "1":
+            flash("Пароль изменён. Все активные сессии завершены.", "success")
         return render_template("login.html")
 
     @app.post("/login")
     def login_post():
         require_csrf()
-        client_key = request.remote_addr or "unknown"
+        client_key = client_ip()
+        agent = client_agent()
         now = time.time()
         with login_lock:
             recent = [stamp for stamp in login_attempts.get(client_key, []) if now - stamp < login_window]
             login_attempts[client_key] = recent
             if len(recent) >= login_limit:
                 wait_minutes = max(1, int((login_window - (now - recent[0]) + 59) // 60))
+                record_auth_event(
+                    "login_blocked", ip_address=client_key,
+                    user_agent=agent, detail=f"wait={wait_minutes}m",
+                )
                 flash(f"Слишком много неудачных попыток. Повторите через {wait_minutes} мин.", "error")
                 return redirect(url_for("login"))
 
         password_hash = os.environ.get("AWGPANEL_PASSWORD_HASH", "")
         if not password_hash:
+            record_auth_event("login_error", ip_address=client_key, user_agent=agent, detail="password hash missing")
             flash("Пароль панели не настроен. Повторите установку GUI.", "error")
             return redirect(url_for("login"))
         if not check_password_hash(password_hash, request.form.get("password", "")):
             with login_lock:
                 login_attempts.setdefault(client_key, []).append(now)
+            record_auth_event("login_failed", ip_address=client_key, user_agent=agent)
             flash("Неверный пароль", "error")
             return redirect(url_for("login"))
         with login_lock:
             login_attempts.pop(client_key, None)
+        token = secrets.token_urlsafe(40)
+        create_web_session(token, ip_address=client_key, user_agent=agent)
         session.clear()
+        session.permanent = True
         session["authenticated"] = True
+        session["session_token"] = token
         session["csrf_token"] = secrets.token_urlsafe(32)
+        record_auth_event("login_success", ip_address=client_key, user_agent=agent)
         return redirect(url_for("dashboard"))
 
     @app.post("/logout")
     @login_required
     def logout():
         require_csrf()
+        token = str(session.get("session_token", ""))
+        if token:
+            revoke_web_session(hashlib.sha256(token.encode("utf-8")).hexdigest())
+        record_auth_event("logout", ip_address=client_ip(), user_agent=client_agent())
         session.clear()
         return redirect(url_for("login"))
 
@@ -470,7 +533,28 @@ def create_app() -> Flask:
     @app.get("/backups")
     @login_required
     def backups_page():
-        return render_template("backups.html", backups=list_backups(limit=50))
+        return render_template(
+            "backups.html",
+            backups=list_backups(limit=50),
+            panel=get_panel_settings(),
+        )
+
+    @app.post("/backups/policy")
+    @login_required
+    def backup_policy_save():
+        require_csrf()
+        try:
+            panel = configure_backup_policy(
+                request.form.get("backup_schedule", "daily"),
+                request.form.get("backup_keep", "20"),
+            )
+            flash(
+                f"Расписание резервных копий сохранено. Хранится {panel['backup_keep']} копий.",
+                "success",
+            )
+        except (ValueError, PermissionError, AWGPanelError, OSError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("backups_page"))
 
     @app.post("/backups/create")
     @login_required
@@ -497,10 +581,15 @@ def create_app() -> Flask:
     @app.get("/security")
     @login_required
     def security_page():
+        token = str(session.get("session_token", ""))
         return render_template(
             "security.html",
             secure_cookies=app.config["SESSION_COOKIE_SECURE"],
             trust_proxy=_bool_env("AWGPANEL_TRUST_PROXY_HEADERS", False),
+            panel=get_panel_settings(),
+            sessions=list_web_sessions(current_token=token),
+            auth_events=list_auth_events(limit=100),
+            current_ip=client_ip(),
         )
 
     @app.post("/security/password")
@@ -512,21 +601,74 @@ def create_app() -> Flask:
         confirmation = request.form.get("new_password_2", "")
         current_hash = os.environ.get("AWGPANEL_PASSWORD_HASH", "")
         if not current_hash or not check_password_hash(current_hash, current):
+            record_auth_event("password_change_failed", ip_address=client_ip(), user_agent=client_agent())
             flash("Текущий пароль указан неверно.", "error")
-        elif len(new_password) < 8:
-            flash("Новый пароль должен содержать не менее 8 символов.", "error")
-        elif new_password != confirmation:
+            return redirect(url_for("security_page"))
+        if len(new_password) < 10:
+            flash("Новый пароль должен содержать не менее 10 символов.", "error")
+            return redirect(url_for("security_page"))
+        if new_password != confirmation:
             flash("Новые пароли не совпадают.", "error")
-        else:
-            new_hash = generate_password_hash(new_password)
-            _write_env_value("AWGPANEL_PASSWORD_HASH", new_hash)
-            os.environ["AWGPANEL_PASSWORD_HASH"] = new_hash
-            flash("Пароль администратора изменён.", "success")
+            return redirect(url_for("security_page"))
+        new_hash = generate_password_hash(new_password)
+        _write_env_value("AWGPANEL_PASSWORD_HASH", new_hash)
+        os.environ["AWGPANEL_PASSWORD_HASH"] = new_hash
+        rotate_auth_epoch()
+        record_auth_event("password_changed", ip_address=client_ip(), user_agent=client_agent())
+        session.clear()
+        return redirect(url_for("login", password_changed="1"))
+
+    @app.post("/security/allowlist")
+    @login_required
+    def security_allowlist():
+        require_csrf()
+        try:
+            panel = update_ip_allowlist(
+                request.form.get("ip_allowlist", ""), current_ip=client_ip()
+            )
+            state = panel["ip_allowlist"] or "выключен"
+            record_auth_event(
+                "allowlist_changed", ip_address=client_ip(),
+                user_agent=client_agent(), detail=str(state),
+            )
+            flash("IP allowlist сохранён.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("security_page"))
+
+    @app.post("/security/sessions/<token_hash>/revoke")
+    @login_required
+    def security_session_revoke(token_hash: str):
+        require_csrf()
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            abort(400)
+        current_token = str(session.get("session_token", ""))
+        current_hash = hashlib.sha256(current_token.encode("utf-8")).hexdigest()
+        revoke_web_session(token_hash)
+        record_auth_event(
+            "session_revoked", ip_address=client_ip(),
+            user_agent=client_agent(), detail=token_hash[:12],
+        )
+        if token_hash == current_hash:
+            session.clear()
+            return redirect(url_for("login"))
+        flash("Сессия завершена.", "success")
+        return redirect(url_for("security_page"))
+
+    @app.post("/security/sessions/revoke-others")
+    @login_required
+    def security_sessions_revoke_others():
+        require_csrf()
+        token = str(session.get("session_token", ""))
+        revoke_all_web_sessions(except_token=token)
+        record_auth_event("sessions_revoked", ip_address=client_ip(), user_agent=client_agent())
+        flash("Все остальные сессии завершены.", "success")
         return redirect(url_for("security_page"))
 
     @app.get("/settings")
     @login_required
     def settings_page():
+        update_info = check_for_updates(force=False)
         return render_template(
             "settings.html",
             version=__version__,
@@ -534,9 +676,77 @@ def create_app() -> Flask:
             config_dir=os.environ.get(
                 "AWGPANEL_AWG_CONFIG_DIR", "/etc/amnezia/amneziawg"
             ),
-            bind_address=os.environ.get("AWGPANEL_BIND_ADDRESS", "0.0.0.0"),
-            port=os.environ.get("AWGPANEL_PORT", "8080"),
+            bind_address=os.environ.get("AWGPANEL_BIND_ADDRESS", "127.0.0.1"),
+            port=os.environ.get("AWGPANEL_PORT", "18080"),
+            panel=get_panel_settings(),
+            public_url=panel_public_url(),
+            update_info=update_info,
+            update_status=get_update_status(),
         )
+
+    @app.post("/settings/access")
+    @login_required
+    def settings_access_save():
+        require_csrf()
+        try:
+            panel = configure_panel_access(
+                scheme=request.form.get("public_scheme", "http"),
+                public_host=request.form.get("public_host", ""),
+                public_port=request.form.get("public_port", "8080"),
+                https_email=request.form.get("https_email", ""),
+            )
+            record_auth_event(
+                "panel_access_changed", ip_address=client_ip(),
+                user_agent=client_agent(), detail=panel_public_url(panel),
+            )
+            unit = f"sg-awg-panel-restart-{secrets.token_hex(4)}"
+            subprocess.run(
+                [
+                    "systemd-run", f"--unit={unit}", "--collect", "--on-active=2s",
+                    "/bin/systemctl", "restart", "sg-awg-panel.service",
+                ],
+                check=False, capture_output=True, text=True, timeout=10,
+            )
+            if panel["public_host"]:
+                target = panel_public_url(panel)
+            else:
+                host = request.host.split(":", 1)[0]
+                default_port = 443 if panel["public_scheme"] == "https" else 80
+                suffix = "" if int(panel["public_port"]) == default_port else f":{panel['public_port']}"
+                target = f"{panel['public_scheme']}://{host}{suffix}"
+            return redirect(target + url_for("settings_page"))
+        except (ValueError, PermissionError, AWGPanelError, OSError, subprocess.TimeoutExpired) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings_page"))
+
+    @app.post("/settings/update/check")
+    @login_required
+    def settings_update_check():
+        require_csrf()
+        info = check_for_updates(force=True)
+        if info["error"]:
+            flash(f"Не удалось проверить обновления: {info['error']}", "error")
+        elif info["available"]:
+            flash(f"Доступна версия {info['latest']}.", "success")
+        else:
+            flash("Установлена актуальная версия.", "success")
+        return redirect(url_for("settings_page"))
+
+    @app.post("/settings/update/start")
+    @login_required
+    def settings_update_start():
+        require_csrf()
+        version = request.form.get("version", "")
+        try:
+            result = start_panel_update(version)
+            record_auth_event(
+                "update_started", ip_address=client_ip(),
+                user_agent=client_agent(), detail=result["version"],
+            )
+            flash(f"Обновление до {result['version']} запущено. Страница перезапустится автоматически.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("settings_page"))
 
     @app.get("/health")
     def health():

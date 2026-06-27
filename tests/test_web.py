@@ -45,16 +45,19 @@ def diagnostics_data():
     return {
         "service_state": "inactive", "panel_state": "active", "panel_pid": 1,
         "panel_rss_text": "1 MiB", "listen_port": 585,
-        "panel_enabled": True, "awg_enabled": True,
+        "panel_enabled": True, "awg_enabled": True, "nginx_enabled": True,
+        "recovery_enabled": True, "nginx_state": "active", "recovery_state": "active",
         "panel_uptime": "10 мин", "awg_uptime": "—",
         "ip_forward": True, "nat_rule": False, "boot_ready": True,
-        "config_exists": True,
+        "config_exists": True, "backend_port": 18080,
+        "backend": {"listening": True, "loopback_only": True, "lines": []},
         "udp": {"listening": False, "lines": [], "error": ""},
         "interface_present": False, "module_loaded": True, "installed": True,
         "public_ipv4": "203.0.113.10", "external_interface": "ens5",
         "config_path": "/tmp/awg0.conf",
         "resources": {"memory_percent": 10, "load1": 0, "load5": 0, "load15": 0},
         "backups": [], "server_logs": "empty", "panel_logs": "empty",
+        "nginx_logs": "empty", "recovery_logs": "empty",
     }
 
 
@@ -67,6 +70,8 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "get_awg_settings", settings)
     monkeypatch.setattr(web, "list_awg_clients", lambda: [])
     monkeypatch.setattr(web, "list_backups", lambda limit=10: [])
+    monkeypatch.setattr(web, "check_for_updates", lambda force=False: {"current":"v0.1.0-alpha7","latest":"v0.1.0-alpha7","available":False,"checked_at":"now","error":""})
+    monkeypatch.setattr(web, "get_update_status", lambda: {"state":"idle","log":""})
     app = web.create_app()
     app.config.update(TESTING=True)
     return app.test_client()
@@ -91,7 +96,7 @@ def test_health_login_and_new_navigation(tmp_path, monkeypatch):
 
     response = client.get("/diagnostics")
     assert response.status_code == 200
-    assert "UDP 585" in response.get_data(as_text=True)
+    assert "NGINX" in response.get_data(as_text=True)
 
 
 def test_one_click_server_save(tmp_path, monkeypatch):

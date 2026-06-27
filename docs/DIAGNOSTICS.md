@@ -1,68 +1,55 @@
-# Diagnostics и проверка после reboot
+# Диагностика и восстановление после reboot
 
-Страница показывает:
+Страница **Diagnostics** проверяет:
 
-- состояние и uptime web-панели и AWG-сервера;
-- включён ли автозапуск обеих служб;
-- наличие kernel module и интерфейса `awg0`;
-- прослушивание UDP-порта;
-- существование рабочего `awg0.conf`;
-- IPv4 forwarding и активное правило NAT MASQUERADE;
-- публичный IPv4 и внешний интерфейс;
-- реальную RSS-память процесса панели;
-- общий процент памяти Linux и load average;
-- журналы `sg-awg-server` и `sg-awg-panel`.
+- `sg-awg-panel`;
+- `nginx`;
+- `sg-awg-server`;
+- `sg-awg-recovery`;
+- backend `127.0.0.1:18080`;
+- UDP-порт AWG;
+- `awg0.conf`;
+- kernel module;
+- IPv4 forwarding;
+- NAT MASQUERADE;
+- память и uptime;
+- журналы служб.
 
-Кнопка **«Скачать отчёт»** создаёт текстовый диагностический файл. Закрытые ключи, PSK и токены Access в нём скрываются.
+## Recovery service
 
-## Проверка постоянной работы
+`sg-awg-recovery.service` запускается после `network-online.target` и проверяет:
 
-До перезагрузки убедитесь, что на странице зелёные:
+- `net.ipv4.ip_forward=1`;
+- загрузку модуля `amneziawg`;
+- запуск web-панели;
+- запуск Nginx;
+- запуск AWG, если существует `awg0.conf`.
 
-```text
-Web-панель включена в systemd
-AWG-сервер включён в systemd
-Рабочий awg0.conf существует
-IPv4 forwarding включён
-NAT MASQUERADE установлен
-Kernel module загружен
+Проверка автозапуска:
+
+```bash
+systemctl is-enabled sg-awg-panel
+systemctl is-enabled nginx
+systemctl is-enabled sg-awg-server
+systemctl is-enabled sg-awg-recovery
 ```
 
-Затем:
+## Тест перезагрузки
 
 ```bash
 sudo reboot
 ```
 
-После повторного подключения:
+После повторного входа:
 
 ```bash
-systemctl is-active sg-awg-panel
-systemctl is-active sg-awg-server
+systemctl is-active sg-awg-panel nginx sg-awg-server sg-awg-recovery
 ip -br addr show awg0
-ss -lunp | grep ':585'
-```
-
-Ожидается `active`, интерфейс `awg0` с адресом сервера и UDP listener на порту AWG.
-
-## Ручные команды
-
-```bash
-systemctl status sg-awg-panel --no-pager -l
-systemctl status sg-awg-server --no-pager -l
-journalctl -u sg-awg-panel -n 100 --no-pager
-journalctl -u sg-awg-server -n 100 --no-pager
-ip -br addr show awg0
-ss -lunp | grep ':585'
 sudo awg show awg0
 ```
 
-Если handshake есть, но сайты не открываются:
+Клиент должен подключиться без повторного сохранения конфигурации.
 
-```bash
-sysctl net.ipv4.ip_forward
-iptables -t nat -S POSTROUTING
-ip route show default
-```
+## Диагностический отчёт
 
-`net.ipv4.ip_forward` должен быть равен `1`.
+Кнопка **«Скачать отчёт»** собирает состояния и журналы. PrivateKey, PresharedKey и токены Access автоматически скрываются.

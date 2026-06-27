@@ -27,10 +27,10 @@ wait_for_apt(){
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 6 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 7 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 6 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 7 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){
@@ -91,17 +91,22 @@ if [[ ! -f "$ENV_FILE" ]]; then
     read -r -s -p "Repeat password: " AWGPANEL_ADMIN_PASSWORD_2; echo
     [[ "$AWGPANEL_ADMIN_PASSWORD" == "$AWGPANEL_ADMIN_PASSWORD_2" ]] || fail "passwords do not match"
   fi
-  [[ ${#AWGPANEL_ADMIN_PASSWORD} -ge 8 ]] || fail "password must contain at least 8 characters"
+  [[ ${#AWGPANEL_ADMIN_PASSWORD} -ge 10 ]] || fail "password must contain at least 10 characters"
   SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
   PASSWORD_HASH="$(AWGPANEL_PASSWORD="$AWGPANEL_ADMIN_PASSWORD" .venv/bin/python -c 'import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ["AWGPANEL_PASSWORD"]))')"
   cat > "$ENV_FILE" <<ENVEOF
 AWGPANEL_SECRET_KEY=$SECRET_KEY
 AWGPANEL_PASSWORD_HASH=$PASSWORD_HASH
 AWGPANEL_ENV_FILE=/etc/sg-awg-panel/web.env
-AWGPANEL_BIND_ADDRESS=${AWGPANEL_BIND_ADDRESS:-0.0.0.0}
-AWGPANEL_PORT=${AWGPANEL_PORT:-8080}
+AWGPANEL_BIND_ADDRESS=127.0.0.1
+AWGPANEL_PORT=18080
+AWGPANEL_BACKEND_PORT=18080
+AWGPANEL_PUBLIC_SCHEME=http
+AWGPANEL_PUBLIC_HOST=
+AWGPANEL_PUBLIC_PORT=${AWGPANEL_PUBLIC_PORT:-8080}
+AWGPANEL_HTTPS_EMAIL=
 AWGPANEL_SECURE_COOKIES=0
-AWGPANEL_TRUST_PROXY_HEADERS=0
+AWGPANEL_TRUST_PROXY_HEADERS=1
 AWGPANEL_DB=/var/lib/sg-awg-panel/panel.db
 AWGPANEL_AWG_CONFIG_DIR=/etc/amnezia/amneziawg
 AWGPANEL_AWG_SERVICE=sg-awg-server
@@ -115,15 +120,58 @@ fi
 DB_PATH="$(get_env AWGPANEL_DB /var/lib/sg-awg-panel/panel.db)"
 AWG_CONFIG_DIR="$(get_env AWGPANEL_AWG_CONFIG_DIR /etc/amnezia/amneziawg)"
 AWG_SERVICE="$(get_env AWGPANEL_AWG_SERVICE sg-awg-server)"
-PORT="$(get_env AWGPANEL_PORT 8080)"
+BACKEND_PORT="$(get_env AWGPANEL_PORT 18080)"
+PUBLIC_PORT="$(get_env AWGPANEL_PUBLIC_PORT 8080)"
+PUBLIC_SCHEME="$(get_env AWGPANEL_PUBLIC_SCHEME http)"
+PUBLIC_HOST="$(get_env AWGPANEL_PUBLIC_HOST "")"
+HTTPS_EMAIL="$(get_env AWGPANEL_HTTPS_EMAIL "")"
+
+python3 - "$ENV_FILE" "$PUBLIC_PORT" "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$HTTPS_EMAIL" <<'PYENV'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]); public_port,scheme,host,email=sys.argv[2:]
+updates={
+    'AWGPANEL_BIND_ADDRESS':'127.0.0.1',
+    'AWGPANEL_PORT':'18080',
+    'AWGPANEL_BACKEND_PORT':'18080',
+    'AWGPANEL_PUBLIC_PORT':public_port,
+    'AWGPANEL_PUBLIC_SCHEME':scheme,
+    'AWGPANEL_PUBLIC_HOST':host,
+    'AWGPANEL_HTTPS_EMAIL':email,
+    'AWGPANEL_TRUST_PROXY_HEADERS':'1',
+    'AWGPANEL_SECURE_COOKIES':'1' if scheme=='https' else '0',
+}
+lines=path.read_text(encoding='utf-8').splitlines(); out=[]; seen=set()
+for line in lines:
+    key=line.split('=',1)[0] if '=' in line else ''
+    if key in updates: out.append(f'{key}={updates[key]}'); seen.add(key)
+    else: out.append(line)
+for key,value in updates.items():
+    if key not in seen: out.append(f'{key}={value}')
+path.write_text('\n'.join(out)+'\n',encoding='utf-8')
+PYENV
+chmod 600 "$ENV_FILE"
 
 AWGPANEL_DB="$DB_PATH" \
 AWGPANEL_AWG_CONFIG_DIR="$AWG_CONFIG_DIR" \
 AWGPANEL_AWG_SERVICE="$AWG_SERVICE" \
   .venv/bin/python -m awgpanel init-db
+PUBLIC_SCHEME_SYNC="${PUBLIC_SCHEME:-${OLD_SCHEME:-http}}"
+PUBLIC_HOST_SYNC="${PUBLIC_HOST:-${OLD_HOST:-}}"
+PUBLIC_PORT_SYNC="${PUBLIC_PORT:-${OLD_PORT:-8080}}"
+HTTPS_EMAIL_SYNC="${HTTPS_EMAIL:-${OLD_EMAIL:-}}"
+AWGPANEL_DB="$DB_PATH" PUBLIC_SCHEME_SYNC="$PUBLIC_SCHEME_SYNC" PUBLIC_HOST_SYNC="$PUBLIC_HOST_SYNC" PUBLIC_PORT_SYNC="$PUBLIC_PORT_SYNC" HTTPS_EMAIL_SYNC="$HTTPS_EMAIL_SYNC" .venv/bin/python - <<'PYSET'
+import os
+from awgpanel.db import connect
+with connect() as con:
+    con.execute("""UPDATE panel_settings SET public_scheme=?, public_host=?, public_port=?, https_email=?, https_enabled=?, backend_address='127.0.0.1', backend_port=18080, updated_at=CURRENT_TIMESTAMP WHERE id=1""", (
+        os.environ['PUBLIC_SCHEME_SYNC'], os.environ['PUBLIC_HOST_SYNC'], int(os.environ['PUBLIC_PORT_SYNC']), os.environ['HTTPS_EMAIL_SYNC'], 1 if os.environ['PUBLIC_SCHEME_SYNC']=='https' else 0
+    ))
+PYSET
 
 bash deploy/install-service.sh
 bash deploy/install-backup-timer.sh
+bash deploy/install-recovery-service.sh
 systemctl restart sg-awg-panel.service
 systemctl is-active --quiet sg-awg-panel.service || {
   systemctl --no-pager --full status sg-awg-panel.service || true
@@ -131,6 +179,12 @@ systemctl is-active --quiet sg-awg-panel.service || {
   fail "web service is not active"
 }
 
+ACCESS_ARGS=(--scheme "$PUBLIC_SCHEME" --port "$PUBLIC_PORT")
+[[ -n "$PUBLIC_HOST" ]] && ACCESS_ARGS+=(--domain "$PUBLIC_HOST")
+[[ -n "$HTTPS_EMAIL" ]] && ACCESS_ARGS+=(--email "$HTTPS_EMAIL")
+bash deploy/configure-panel-access.sh "${ACCESS_ARGS[@]}"
+
 log "Ready: SG-AWG-Panel $(.venv/bin/python -m awgpanel --version | awk '{print $2}')"
-log "Web: http://SERVER_IP:${PORT}"
+log "Backend: 127.0.0.1:${BACKEND_PORT}"
+log "Web: ${PUBLIC_SCHEME}://${PUBLIC_HOST:-SERVER_IP}:${PUBLIC_PORT}"
 log "Backup: $BACKUP_DIR"

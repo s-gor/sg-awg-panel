@@ -15,10 +15,15 @@ if command -v awg-quick >/dev/null 2>&1 && [[ -f /etc/amnezia/amneziawg/awg0.con
 fi
 systemctl disable --now sg-awg-panel.service 2>/dev/null || true
 systemctl disable --now sg-awg-backup.timer 2>/dev/null || true
+systemctl disable --now sg-awg-recovery.service 2>/dev/null || true
 systemctl disable --now sg-awg-server.service 2>/dev/null || true
 rm -f /etc/systemd/system/sg-awg-panel.service /etc/systemd/system/sg-awg-server.service \
-  /etc/systemd/system/sg-awg-backup.service /etc/systemd/system/sg-awg-backup.timer
+  /etc/systemd/system/sg-awg-backup.service /etc/systemd/system/sg-awg-backup.timer \
+  /etc/systemd/system/sg-awg-recovery.service
 rm -f /etc/sysctl.d/90-sg-awg-panel.conf
+rm -f /etc/nginx/sites-enabled/sg-awg-panel /etc/nginx/sites-available/sg-awg-panel
+rm -rf /var/www/sg-awg-panel-acme
+nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
 rm -rf /opt/sg-awg-panel /etc/sg-awg-panel /var/lib/sg-awg-panel /etc/amnezia/amneziawg
 systemctl daemon-reload
 systemctl reset-failed >/dev/null 2>&1 || true

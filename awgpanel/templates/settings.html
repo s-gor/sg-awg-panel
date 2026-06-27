@@ -1,7 +1,66 @@
 {% extends "base.html" %}
-{% block section %}SETTINGS{% endblock %}
-{% block heading %}Настройки панели{% endblock %}
-{% block subtitle %}Системные пути, автозапуск и способ установки{% endblock %}
+{% block section %}SETTINGS{% if update_status.state in ['starting','downloading','installing','rollback'] %}
+<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>
+{% endif %}
+{% endblock %}
+{% block heading %}Настройки панели{% if update_status.state in ['starting','downloading','installing','rollback'] %}
+<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>
+{% endif %}
+{% endblock %}
+{% block subtitle %}HTTPS, домен, публичный порт, backend и обновления{% if update_status.state in ['starting','downloading','installing','rollback'] %}
+<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>
+{% endif %}
+{% endblock %}
 {% block content %}
-<section class="panel-card narrow-card"><div class="key-values one-column"><div><span>Версия</span><strong>{{ version }}</strong></div><div><span>Режим установки</span><strong>Native / systemd</strong></div><div><span>Адрес панели</span><strong>{{ bind_address }}:{{ port }}</strong></div><div><span>SQLite</span><strong>{{ db_path }}</strong></div><div><span>AWG config directory</span><strong>{{ config_dir }}</strong></div><div><span>Автоматические копии</span><strong>systemd timer · ежедневно</strong></div></div><div class="alert success">Нативная установка остаётся основной для слабых VPS. Docker Compose будет отдельным дополнительным вариантом после стабилизации.</div></section>
+<section class="dashboard-grid">
+  <article class="panel-card">
+    <h2>Публичный доступ</h2>
+    <p class="muted">Backend всегда слушает только 127.0.0.1:18080. Снаружи панель публикует Nginx.</p>
+    <form method="post" action="{{ url_for('settings_access_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Режим
+        <select name="public_scheme">
+          <option value="http" {{ 'selected' if panel.public_scheme == 'http' else '' }}>HTTP</option>
+          <option value="https" {{ 'selected' if panel.public_scheme == 'https' else '' }}>HTTPS + Let's Encrypt</option>
+        </select>
+      </label>
+      <label>Домен панели<input type="text" name="public_host" value="{{ panel.public_host }}" placeholder="awg.example.com"></label>
+      <label>Публичный порт<input type="number" name="public_port" min="1" max="65535" value="{{ panel.public_port }}" required></label>
+      <label>E-mail Let's Encrypt<input type="email" name="https_email" value="{{ panel.https_email }}" placeholder="admin@example.com"></label>
+      <button class="button primary" type="submit">Применить доступ</button>
+    </form>
+    <div class="alert warning">Перед HTTPS домен должен указывать на этот сервер, а TCP 80 должен быть открыт для проверки Let's Encrypt.</div>
+  </article>
+  <article class="panel-card">
+    <h2>Текущее состояние</h2>
+    <div class="key-values one-column">
+      <div><span>Публичный URL</span><strong>{{ public_url }}</strong></div>
+      <div><span>Backend</span><strong>{{ bind_address }}:{{ port }}</strong></div>
+      <div><span>HTTPS</span><strong>{{ 'включён' if panel.https_enabled else 'выключен' }}</strong></div>
+      <div><span>SQLite</span><strong>{{ db_path }}</strong></div>
+      <div><span>AWG config</span><strong>{{ config_dir }}</strong></div>
+    </div>
+  </article>
+</section>
+
+<section class="panel-card">
+  <div class="section-head"><div><h2>Обновления</h2><p class="muted">Проверка выполняется по тегам GitHub. Перед обновлением создаётся полный rollback-набор.</p></div><form method="post" action="{{ url_for('settings_update_check') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Проверить сейчас</button></form></div>
+  <div class="key-values">
+    <div><span>Установлена</span><strong>v{{ version }}</strong></div>
+    <div><span>Последняя</span><strong>{{ update_info.latest or 'не определена' }}</strong></div>
+    <div><span>Проверено</span><strong>{{ update_info.checked_at or 'ещё нет' }}</strong></div>
+    <div><span>Состояние задачи</span><strong>{{ update_status.state }}</strong></div>
+  </div>
+  {% if update_info.error %}<div class="alert error">{{ update_info.error }}</div>{% endif %}
+  {% if update_info.available %}
+  <form method="post" action="{{ url_for('settings_update_start') }}" onsubmit="return confirm('Начать обновление до {{ update_info.latest }}? При ошибке будет выполнен автоматический откат.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ update_info.latest }}">
+    <button class="button primary" type="submit">Обновить до {{ update_info.latest }}</button>
+  </form>
+  {% else %}<div class="alert success">Новых версий не обнаружено.</div>{% endif %}
+  {% if update_status.log %}<details><summary>Последний журнал обновления</summary><pre class="log-output">{{ update_status.log }}</pre></details>{% endif %}
+</section>
+{% if update_status.state in ['starting','downloading','installing','rollback'] %}
+<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>
+{% endif %}
 {% endblock %}

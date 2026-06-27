@@ -9,3 +9,4 @@ htmlcov/
 *.db-shm
 .env
 .test-venv/
+.testvenv/

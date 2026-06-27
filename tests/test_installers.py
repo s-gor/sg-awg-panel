@@ -51,7 +51,8 @@ def test_automatic_backup_timer_is_installed():
     timer = (ROOT / "deploy" / "install-backup-timer.sh").read_text(encoding="utf-8")
     assert "install-backup-timer.sh" in install
     assert "install-backup-timer.sh" in update
-    assert "OnCalendar=daily" in timer
+    assert "OnCalendar=$CALENDAR" in timer
+    assert "backup_schedule" in timer
     assert "Persistent=true" in timer
 
 
@@ -62,8 +63,45 @@ def test_project_is_installed_into_virtualenv():
     assert (ROOT / "pyproject.toml").exists()
 
 
-def test_optional_https_script_exists_and_binds_panel_locally():
-    text = (ROOT / "deploy" / "enable-https.sh").read_text(encoding="utf-8")
+def test_panel_access_proxy_binds_backend_locally():
+    text = (ROOT / "deploy" / "configure-panel-access.sh").read_text(encoding="utf-8")
+    service = (ROOT / "deploy" / "install-service.sh").read_text(encoding="utf-8")
     assert "AWGPANEL_BIND_ADDRESS" in text
     assert "127.0.0.1" in text
-    assert "certbot --nginx" in text
+    assert "certbot certonly" in text
+    assert "Backend must bind only to loopback" in service
+
+
+def test_update_has_automatic_rollback_and_recovery_service():
+    update = (ROOT / "deploy" / "update-from-github.sh").read_text(encoding="utf-8")
+    install = (ROOT / "install-or-upgrade.sh").read_text(encoding="utf-8")
+    assert "rollback" in update
+    assert "rolled_back" in update
+    assert "install-recovery-service.sh" in update
+    assert "install-recovery-service.sh" in install
+    assert (ROOT / "deploy" / "recover-after-boot.sh").exists()
+
+
+def test_quoted_python_heredocs_compile():
+    """Catch malformed embedded Python before publishing shell installers."""
+    import re
+
+    for script in ROOT.rglob("*.sh"):
+        text = script.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        index = 0
+        while index < len(lines):
+            match = re.search(r"<<'([A-Za-z_][A-Za-z0-9_]*)'", lines[index])
+            if not match:
+                index += 1
+                continue
+            marker = match.group(1)
+            body: list[str] = []
+            index += 1
+            while index < len(lines) and lines[index] != marker:
+                body.append(lines[index])
+                index += 1
+            assert index < len(lines), f"Unterminated heredoc {marker} in {script}"
+            if marker.startswith("PY"):
+                compile("\n".join(body) + "\n", f"{script}:{marker}", "exec")
+            index += 1

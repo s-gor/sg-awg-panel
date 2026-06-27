@@ -1,7 +1,65 @@
 {% extends "base.html" %}
 {% block section %}SECURITY{% endblock %}
 {% block heading %}Безопасность{% endblock %}
-{% block subtitle %}Пароль панели, защита входа и безопасный доступ{% endblock %}
+{% block subtitle %}Пароль, IP allowlist, активные сессии и журнал входов{% endblock %}
 {% block content %}
-<section class="dashboard-grid"><article class="panel-card"><h2>Сменить пароль</h2><form method="post" action="{{ url_for('security_password') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Текущий пароль<input type="password" name="current_password" required autocomplete="current-password"></label><label>Новый пароль<input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label><label>Повторите новый пароль<input type="password" name="new_password_2" required minlength="8" autocomplete="new-password"></label><button class="button primary" type="submit">Изменить пароль</button></form></article><article class="panel-card"><h2>Текущий режим</h2><div class="key-values one-column"><div><span>Secure cookies</span><strong>{{ 'включены' if secure_cookies else 'выключены' }}</strong></div><div><span>Proxy headers</span><strong>{{ 'доверенные' if trust_proxy else 'не используются' }}</strong></div><div><span>Защита входа</span><strong>5 попыток / 15 минут / IP</strong></div></div><div class="alert warning">Если панель открыта по HTTP на 8080, ограничьте TCP 8080 своим IP. Для постоянного сервера используйте optional HTTPS-скрипт из deploy/enable-https.sh.</div></article></section>
+<section class="dashboard-grid">
+  <article class="panel-card">
+    <h2>Сменить пароль</h2>
+    <p class="muted">После смены пароля все активные сессии, включая текущую, будут завершены.</p>
+    <form method="post" action="{{ url_for('security_password') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Текущий пароль<input type="password" name="current_password" required autocomplete="current-password"></label>
+      <label>Новый пароль<input type="password" name="new_password" required minlength="10" autocomplete="new-password"></label>
+      <label>Повторите новый пароль<input type="password" name="new_password_2" required minlength="10" autocomplete="new-password"></label>
+      <button class="button primary" type="submit">Изменить пароль</button>
+    </form>
+  </article>
+  <article class="panel-card">
+    <h2>IP allowlist</h2>
+    <p class="muted">Пустое поле разрешает вход с любого IP. Можно указать отдельные IP или сети CIDR через запятую.</p>
+    <form method="post" action="{{ url_for('security_allowlist') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Разрешённые IP и сети
+        <textarea name="ip_allowlist" rows="5" placeholder="203.0.113.10, 198.51.100.0/24">{{ panel.ip_allowlist }}</textarea>
+      </label>
+      <div class="inline-note">Текущий IP: <code>{{ current_ip }}</code>. Панель не позволит сохранить список без текущего IP.</div>
+      <button class="button primary" type="submit">Сохранить allowlist</button>
+    </form>
+  </article>
+</section>
+
+<section class="panel-card">
+  <div class="section-head">
+    <div><h2>Активные сессии</h2><p class="muted">Сессии хранятся на сервере и могут быть завершены отдельно.</p></div>
+    <form method="post" action="{{ url_for('security_sessions_revoke_others') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button" type="submit">Завершить остальные</button>
+    </form>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>IP</th><th>Создана</th><th>Последняя активность</th><th>Клиент</th><th>Действие</th></tr></thead>
+    <tbody>
+    {% for item in sessions %}
+      <tr>
+        <td><code>{{ item.ip_address or '—' }}</code>{% if item.current %} <span class="pill success">ТЕКУЩАЯ</span>{% endif %}</td>
+        <td>{{ item.created_at }}</td><td>{{ item.last_seen_at }}</td>
+        <td class="truncate-cell" title="{{ item.user_agent }}">{{ item.user_agent or '—' }}</td>
+        <td><form method="post" action="{{ url_for('security_session_revoke', token_hash=item.token_hash) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button small danger" type="submit">Завершить</button>
+        </form></td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty">Активных сессий нет.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="panel-card">
+  <div class="section-head"><div><h2>Журнал входов</h2><p class="muted">Последние успешные, ошибочные и заблокированные попытки.</p></div><span class="pill">100 СОБЫТИЙ</span></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Время UTC</th><th>Событие</th><th>IP</th><th>Клиент</th><th>Подробности</th></tr></thead>
+    <tbody>{% for event in auth_events %}<tr><td>{{ event.created_at }}</td><td><code>{{ event.event_type }}</code></td><td><code>{{ event.ip_address or '—' }}</code></td><td class="truncate-cell" title="{{ event.user_agent }}">{{ event.user_agent or '—' }}</td><td>{{ event.detail or '—' }}</td></tr>{% else %}<tr><td colspan="5" class="empty">Журнал пока пуст.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
 {% endblock %}

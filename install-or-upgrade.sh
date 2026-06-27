@@ -27,10 +27,10 @@ wait_for_apt(){
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 4 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 5 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 4 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 5 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){
@@ -83,6 +83,7 @@ cd "$PROJECT_DIR"
 python3 -m venv .venv
 .venv/bin/pip install --no-cache-dir -q --upgrade pip
 .venv/bin/pip install --no-cache-dir -q -r requirements.txt
+.venv/bin/pip install --no-cache-dir -q -e .
 
 if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -z "${AWGPANEL_ADMIN_PASSWORD:-}" ]]; then
@@ -122,6 +123,7 @@ AWGPANEL_AWG_SERVICE="$AWG_SERVICE" \
   .venv/bin/python -m awgpanel init-db
 
 bash deploy/install-service.sh
+bash deploy/install-backup-timer.sh
 systemctl restart sg-awg-panel.service
 systemctl is-active --quiet sg-awg-panel.service || {
   systemctl --no-pager --full status sg-awg-panel.service || true

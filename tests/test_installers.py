@@ -43,3 +43,27 @@ def test_update_and_uninstall_scripts_exist():
     assert (ROOT / "deploy" / "update-from-github.sh").exists()
     uninstall = (ROOT / "deploy" / "uninstall.sh").read_text(encoding="utf-8")
     assert "--purge-amneziawg" in uninstall
+
+
+def test_automatic_backup_timer_is_installed():
+    install = (ROOT / "install-or-upgrade.sh").read_text(encoding="utf-8")
+    update = (ROOT / "deploy" / "update-from-github.sh").read_text(encoding="utf-8")
+    timer = (ROOT / "deploy" / "install-backup-timer.sh").read_text(encoding="utf-8")
+    assert "install-backup-timer.sh" in install
+    assert "install-backup-timer.sh" in update
+    assert "OnCalendar=daily" in timer
+    assert "Persistent=true" in timer
+
+
+def test_project_is_installed_into_virtualenv():
+    for relative in ("install-or-upgrade.sh", "deploy/update-from-github.sh"):
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        assert "pip install --no-cache-dir -q -e ." in text
+    assert (ROOT / "pyproject.toml").exists()
+
+
+def test_optional_https_script_exists_and_binds_panel_locally():
+    text = (ROOT / "deploy" / "enable-https.sh").read_text(encoding="utf-8")
+    assert "AWGPANEL_BIND_ADDRESS" in text
+    assert "127.0.0.1" in text
+    assert "certbot --nginx" in text

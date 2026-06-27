@@ -4,7 +4,7 @@ import argparse
 import json
 
 from . import __version__
-from .core import get_awg_overview
+from .core import create_manual_backup, get_awg_overview
 from .db import init_db
 
 
@@ -14,6 +14,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("init-db")
     sub.add_parser("status")
+    sub.add_parser("backup")
     args = parser.parse_args()
 
     if args.version:
@@ -32,6 +33,10 @@ def main() -> int:
             "service_state": overview["service_state"],
             "clients": len(overview["clients"]),
         }, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "backup":
+        backup = create_manual_backup()
+        print(backup)
         return 0
     parser.print_help()
     return 2

@@ -4,6 +4,8 @@ import base64
 import io
 import os
 import secrets
+import threading
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -26,6 +28,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import __version__
 from .core import (
     add_awg_client,
+    build_diagnostic_report,
     configure_and_start_awg,
     create_manual_backup,
     delete_awg_client,
@@ -97,6 +100,10 @@ def create_app() -> Flask:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[assignment]
 
     init_db()
+    login_attempts: dict[str, list[float]] = {}
+    login_lock = threading.Lock()
+    login_window = 15 * 60
+    login_limit = 5
 
     def login_required(view):
         @wraps(view)
@@ -141,13 +148,27 @@ def create_app() -> Flask:
     @app.post("/login")
     def login_post():
         require_csrf()
+        client_key = request.remote_addr or "unknown"
+        now = time.time()
+        with login_lock:
+            recent = [stamp for stamp in login_attempts.get(client_key, []) if now - stamp < login_window]
+            login_attempts[client_key] = recent
+            if len(recent) >= login_limit:
+                wait_minutes = max(1, int((login_window - (now - recent[0]) + 59) // 60))
+                flash(f"Слишком много неудачных попыток. Повторите через {wait_minutes} мин.", "error")
+                return redirect(url_for("login"))
+
         password_hash = os.environ.get("AWGPANEL_PASSWORD_HASH", "")
         if not password_hash:
             flash("Пароль панели не настроен. Повторите установку GUI.", "error")
             return redirect(url_for("login"))
         if not check_password_hash(password_hash, request.form.get("password", "")):
+            with login_lock:
+                login_attempts.setdefault(client_key, []).append(now)
             flash("Неверный пароль", "error")
             return redirect(url_for("login"))
+        with login_lock:
+            login_attempts.pop(client_key, None)
         session.clear()
         session["authenticated"] = True
         session["csrf_token"] = secrets.token_urlsafe(32)
@@ -405,6 +426,17 @@ def create_app() -> Flask:
     @login_required
     def diagnostics():
         return render_template("diagnostics.html", diagnostics=get_awg_diagnostics())
+
+    @app.get("/diagnostics/report")
+    @login_required
+    def diagnostics_report():
+        report = build_diagnostic_report()
+        return send_file(
+            io.BytesIO(report.encode("utf-8")),
+            mimetype="text/plain; charset=utf-8",
+            as_attachment=True,
+            download_name="sg-awg-panel-diagnostics.txt",
+        )
 
     @app.get("/backups")
     @login_required

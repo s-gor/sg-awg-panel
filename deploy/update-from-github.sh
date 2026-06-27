@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha4}"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha5}"
 URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
 PROJECT_DIR="/opt/sg-awg-panel"
 ENV_FILE="/etc/sg-awg-panel/web.env"
@@ -53,6 +53,7 @@ log "Updating panel files without apt/dpkg"
 rsync -a --delete --exclude '.git/' --exclude '.venv/' --exclude '__pycache__/' "$SOURCE_DIR/" "$PROJECT_DIR/"
 cd "$PROJECT_DIR"
 .venv/bin/pip install --no-cache-dir -q -r requirements.txt
+.venv/bin/pip install --no-cache-dir -q -e .
 
 DB_PATH="$(get_env AWGPANEL_DB /var/lib/sg-awg-panel/panel.db)"
 AWG_CONFIG_DIR="$(get_env AWGPANEL_AWG_CONFIG_DIR /etc/amnezia/amneziawg)"
@@ -60,6 +61,7 @@ AWG_SERVICE="$(get_env AWGPANEL_AWG_SERVICE sg-awg-server)"
 AWGPANEL_DB="$DB_PATH" AWGPANEL_AWG_CONFIG_DIR="$AWG_CONFIG_DIR" AWGPANEL_AWG_SERVICE="$AWG_SERVICE" .venv/bin/python -m awgpanel init-db
 
 bash deploy/install-service.sh
+bash deploy/install-backup-timer.sh
 systemctl restart sg-awg-panel.service
 systemctl is-active --quiet sg-awg-panel.service || {
   systemctl --no-pager --full status sg-awg-panel.service || true

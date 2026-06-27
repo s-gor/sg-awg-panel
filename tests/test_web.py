@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import awgpanel.db as db
 import awgpanel.web as web
 from werkzeug.security import generate_password_hash
@@ -43,6 +45,10 @@ def diagnostics_data():
     return {
         "service_state": "inactive", "panel_state": "active", "panel_pid": 1,
         "panel_rss_text": "1 MiB", "listen_port": 585,
+        "panel_enabled": True, "awg_enabled": True,
+        "panel_uptime": "10 мин", "awg_uptime": "—",
+        "ip_forward": True, "nat_rule": False, "boot_ready": True,
+        "config_exists": True,
         "udp": {"listening": False, "lines": [], "error": ""},
         "interface_present": False, "module_loaded": True, "installed": True,
         "public_ipv4": "203.0.113.10", "external_interface": "ens5",
@@ -139,3 +145,20 @@ def test_all_main_pages_render(tmp_path, monkeypatch):
     for path in ("/clients", "/access", "/routing", "/dns", "/backups", "/security", "/settings"):
         response = client.get(path)
         assert response.status_code == 200, path
+
+
+def test_diagnostic_report_download(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(web, "build_diagnostic_report", lambda: "safe diagnostic report\n")
+    login(client)
+    response = client.get("/diagnostics/report")
+    assert response.status_code == 200
+    assert response.data == b"safe diagnostic report\n"
+    assert "sg-awg-panel-diagnostics.txt" in response.headers["Content-Disposition"]
+
+
+def test_readability_css_uses_muted_accent_and_larger_text():
+    css = (Path(__file__).resolve().parents[1] / "awgpanel" / "static" / "app.css").read_text()
+    assert "--bg: #15191f" in css
+    assert "--accent: #5aa99d" in css
+    assert "font-size: 14px" in css

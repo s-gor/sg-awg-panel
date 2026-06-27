@@ -1,9 +1,38 @@
 {% extends "base.html" %}
 {% block section %}DIAGNOSTICS{% endblock %}
 {% block heading %}Diagnostics{% endblock %}
-{% block subtitle %}Службы, интерфейс, UDP-порт, ресурсы и журналы{% endblock %}
+{% block subtitle %}Службы, автозапуск, интерфейс, UDP-порт, NAT и журналы{% endblock %}
 {% block content %}
-<section class="metric-grid four"><div class="metric-card"><span class="metric-label">WEB-ПАНЕЛЬ</span><strong>{{ diagnostics.panel_state }}</strong><small>PID {{ diagnostics.panel_pid or '—' }} · {{ diagnostics.panel_rss_text }}</small></div><div class="metric-card"><span class="metric-label">AWG SERVER</span><strong>{{ diagnostics.service_state }}</strong><small>awg0: {{ 'есть' if diagnostics.interface_present else 'нет' }}</small></div><div class="metric-card"><span class="metric-label">UDP {{ diagnostics.listen_port }}</span><strong>{{ 'listening' if diagnostics.udp.listening else 'closed' }}</strong><small>{{ diagnostics.udp.error or 'проверено через ss' }}</small></div><div class="metric-card"><span class="metric-label">KERNEL</span><strong>{{ 'loaded' if diagnostics.module_loaded else 'missing' }}</strong><small>{{ 'AWG установлен' if diagnostics.installed else 'AWG не найден' }}</small></div></section>
-<section class="panel-card"><div class="section-head"><div><h2>Сеть и ресурсы</h2></div><div class="actions"><form method="post" action="{{ url_for('service_action', action='restart') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Перезапустить AWG</button></form></div></div><div class="key-values"><div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or 'не определён' }}</strong></div><div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div><div><span>Рабочий config</span><strong>{{ diagnostics.config_path }}</strong></div><div><span>Память системы</span><strong>{{ diagnostics.resources.memory_percent }}%</strong></div><div><span>Load average</span><strong>{{ diagnostics.resources.load1 }} / {{ diagnostics.resources.load5 }} / {{ diagnostics.resources.load15 }}</strong></div><div><span>Резервных копий</span><strong>{{ diagnostics.backups|length }}</strong></div></div>{% if diagnostics.udp.lines %}<pre>{{ diagnostics.udp.lines|join('\n') }}</pre>{% endif %}</section>
+<section class="metric-grid four">
+  <div class="metric-card"><span class="metric-label">WEB-ПАНЕЛЬ</span><strong>{{ diagnostics.panel_state }}</strong><small>uptime {{ diagnostics.panel_uptime }} · {{ diagnostics.panel_rss_text }}</small></div>
+  <div class="metric-card"><span class="metric-label">AWG SERVER</span><strong>{{ diagnostics.service_state }}</strong><small>uptime {{ diagnostics.awg_uptime }} · awg0 {{ 'есть' if diagnostics.interface_present else 'нет' }}</small></div>
+  <div class="metric-card"><span class="metric-label">UDP {{ diagnostics.listen_port }}</span><strong>{{ 'listening' if diagnostics.udp.listening else 'closed' }}</strong><small>{{ diagnostics.udp.error or 'проверено через ss' }}</small></div>
+  <div class="metric-card"><span class="metric-label">ПОСЛЕ REBOOT</span><strong>{{ 'ready' if diagnostics.boot_ready else 'check' }}</strong><small>systemd + config + forwarding</small></div>
+</section>
+<section class="dashboard-grid">
+  <article class="panel-card">
+    <div class="section-head"><div><h2>Проверка постоянной работы</h2><p class="muted">Эти пункты должны быть зелёными до тестовой перезагрузки сервера.</p></div><a class="button primary" href="{{ url_for('diagnostics_report') }}">Скачать отчёт</a></div>
+    <div class="health-list">
+      <div class="health-item"><span>Web-панель включена в systemd</span><strong class="{{ 'ok' if diagnostics.panel_enabled else 'bad' }}">{{ 'да' if diagnostics.panel_enabled else 'нет' }}</strong></div>
+      <div class="health-item"><span>AWG-сервер включён в systemd</span><strong class="{{ 'ok' if diagnostics.awg_enabled else 'bad' }}">{{ 'да' if diagnostics.awg_enabled else 'нет' }}</strong></div>
+      <div class="health-item"><span>Рабочий awg0.conf существует</span><strong class="{{ 'ok' if diagnostics.config_exists else 'bad' }}">{{ 'да' if diagnostics.config_exists else 'нет' }}</strong></div>
+      <div class="health-item"><span>IPv4 forwarding</span><strong class="{{ 'ok' if diagnostics.ip_forward else 'bad' }}">{{ 'включён' if diagnostics.ip_forward else 'выключен' }}</strong></div>
+      <div class="health-item"><span>NAT MASQUERADE сейчас установлен</span><strong class="{{ 'ok' if diagnostics.nat_rule else 'bad' }}">{{ 'да' if diagnostics.nat_rule else 'нет' }}</strong></div>
+      <div class="health-item"><span>Kernel module AmneziaWG</span><strong class="{{ 'ok' if diagnostics.module_loaded else 'bad' }}">{{ 'загружен' if diagnostics.module_loaded else 'не загружен' }}</strong></div>
+    </div>
+  </article>
+  <article class="panel-card">
+    <div class="section-head"><div><h2>Сеть и ресурсы</h2></div><form method="post" action="{{ url_for('service_action', action='restart') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Перезапустить AWG</button></form></div>
+    <div class="key-values one-column">
+      <div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or 'не определён' }}</strong></div>
+      <div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div>
+      <div><span>Память панели</span><strong>{{ diagnostics.panel_rss_text }}</strong></div>
+      <div><span>Память системы</span><strong>{{ diagnostics.resources.memory_percent }}%</strong></div>
+      <div><span>Load average</span><strong>{{ diagnostics.resources.load1 }} / {{ diagnostics.resources.load5 }} / {{ diagnostics.resources.load15 }}</strong></div>
+      <div><span>Резервных копий</span><strong>{{ diagnostics.backups|length }}</strong></div>
+    </div>
+  </article>
+</section>
+{% if diagnostics.udp.lines %}<section class="panel-card"><h2>UDP listener</h2><pre>{{ diagnostics.udp.lines|join('\n') }}</pre></section>{% endif %}
 <section class="panel-card"><details open><summary>Журнал AmneziaWG</summary><pre class="log-output">{{ diagnostics.server_logs }}</pre></details><details><summary>Журнал web-панели</summary><pre class="log-output">{{ diagnostics.panel_logs }}</pre></details></section>
 {% endblock %}

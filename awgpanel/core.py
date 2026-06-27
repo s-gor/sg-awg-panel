@@ -1017,24 +1017,141 @@ def _service_logs(service: str, lines: int = 80) -> str:
     return text[-24_000:] if text else "Журнал пока пуст."
 
 
+
+
+def _systemctl_enabled(service: str) -> bool:
+    result = _run(["systemctl", "is-enabled", service], timeout=10)
+    return result.returncode == 0 and result.stdout.strip() in {"enabled", "static", "indirect"}
+
+
+def _service_uptime(service: str) -> str:
+    result = _run(
+        ["systemctl", "show", service, "-p", "ActiveEnterTimestampMonotonic", "--value"],
+        timeout=10,
+    )
+    try:
+        started = int(result.stdout.strip() or 0) / 1_000_000
+    except ValueError:
+        return "—"
+    if started <= 0:
+        return "—"
+    age = max(0, int(time.monotonic() - started))
+    days, remainder = divmod(age, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if days:
+        return f"{days} д {hours} ч"
+    if hours:
+        return f"{hours} ч {minutes} мин"
+    return f"{minutes} мин"
+
+
+def _ip_forward_enabled() -> bool:
+    try:
+        return Path("/proc/sys/net/ipv4/ip_forward").read_text(encoding="ascii").strip() == "1"
+    except OSError:
+        return False
+
+
+def _nat_rule_present(settings) -> bool:
+    iptables = _command_path("iptables")
+    if not iptables or not settings["configured"]:
+        return False
+    result = _run(
+        [
+            iptables, "-t", "nat", "-C", "POSTROUTING",
+            "-s", str(settings["server_network"]),
+            "-o", str(settings["external_interface"]),
+            "-j", "MASQUERADE",
+        ],
+        timeout=10,
+    )
+    return result.returncode == 0
+
+
+def _redact_diagnostic_text(text: str) -> str:
+    redacted = re.sub(
+        r"(?im)^(PrivateKey|PresharedKey|PublicKey)\s*=\s*.+$",
+        r"\1 = [REDACTED]",
+        text,
+    )
+    redacted = re.sub(r"(?i)(/a/)[A-Za-z0-9_-]{16,}", r"\1[REDACTED]", redacted)
+    return redacted[-16_000:]
+
+
+def build_diagnostic_report() -> str:
+    diagnostics = get_awg_diagnostics()
+    resources = diagnostics["resources"]
+    lines = [
+        "SG-AWG-Panel diagnostic report",
+        f"Generated UTC: {datetime.now(timezone.utc).isoformat()}",
+        "",
+        f"AWG service: {diagnostics['service_state']}",
+        f"AWG enabled at boot: {diagnostics['awg_enabled']}",
+        f"AWG uptime: {diagnostics['awg_uptime']}",
+        f"Panel service: {diagnostics['panel_state']}",
+        f"Panel enabled at boot: {diagnostics['panel_enabled']}",
+        f"Panel uptime: {diagnostics['panel_uptime']}",
+        f"Panel RSS: {diagnostics['panel_rss_text']}",
+        f"Kernel module loaded: {diagnostics['module_loaded']}",
+        f"AWG tools installed: {diagnostics['installed']}",
+        f"Interface present: {diagnostics['interface_present']}",
+        f"UDP {diagnostics['listen_port']} listening: {diagnostics['udp']['listening']}",
+        f"IPv4 forwarding: {diagnostics['ip_forward']}",
+        f"NAT masquerade rule: {diagnostics['nat_rule']}",
+        f"Boot persistence ready: {diagnostics['boot_ready']}",
+        f"Public IPv4: {diagnostics['public_ipv4'] or 'unknown'}",
+        f"External interface: {diagnostics['external_interface'] or 'unknown'}",
+        f"System memory used: {resources['memory_percent']}%",
+        f"Load average: {resources['load1']} / {resources['load5']} / {resources['load15']}",
+        f"Config exists: {diagnostics['config_exists']}",
+        f"Config path: {diagnostics['config_path']}",
+        f"Backups: {len(diagnostics['backups'])}",
+        "",
+        "--- sg-awg-server journal ---",
+        _redact_diagnostic_text(str(diagnostics['server_logs'])),
+        "",
+        "--- sg-awg-panel journal ---",
+        _redact_diagnostic_text(str(diagnostics['panel_logs'])),
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def get_awg_diagnostics() -> dict[str, object]:
     settings = get_awg_settings()
     state = awg_service_state()
+    panel_state = _run(["systemctl", "is-active", "sg-awg-panel"]).stdout.strip() or "inactive"
     panel_pid = _service_main_pid("sg-awg-panel")
     panel_rss = _process_rss(panel_pid)
     listen_port = int(settings["listen_port"] or 585)
+    panel_enabled = _systemctl_enabled("sg-awg-panel")
+    awg_enabled = _systemctl_enabled(AWG_SERVICE)
+    ip_forward = _ip_forward_enabled()
+    nat_rule = _nat_rule_present(settings)
+    config_exists = AWG_CONFIG_PATH.exists()
+    interface_present = Path(f"/sys/class/net/{settings['interface_name']}").exists()
+    udp = _udp_listener(listen_port)
+    boot_ready = bool(panel_enabled and awg_enabled and config_exists and ip_forward)
     return {
         "service_state": state,
-        "panel_state": _run(["systemctl", "is-active", "sg-awg-panel"]).stdout.strip() or "inactive",
+        "panel_state": panel_state,
+        "panel_enabled": panel_enabled,
+        "awg_enabled": awg_enabled,
+        "panel_uptime": _service_uptime("sg-awg-panel"),
+        "awg_uptime": _service_uptime(AWG_SERVICE),
         "module_loaded": Path("/sys/module/amneziawg").exists(),
         "installed": bool(_command_path("awg") and _command_path("awg-quick")),
-        "interface_present": Path(f"/sys/class/net/{settings['interface_name']}").exists(),
+        "interface_present": interface_present,
         "external_interface": detect_external_interface(),
         "public_ipv4": detect_public_ipv4(force=True),
-        "udp": _udp_listener(listen_port),
+        "udp": udp,
         "listen_port": listen_port,
         "config_path": str(AWG_CONFIG_PATH),
-        "config_exists": AWG_CONFIG_PATH.exists(),
+        "config_exists": config_exists,
+        "ip_forward": ip_forward,
+        "nat_rule": nat_rule,
+        "boot_ready": boot_ready,
         "panel_pid": panel_pid,
         "panel_rss": panel_rss,
         "panel_rss_text": _format_bytes(panel_rss),

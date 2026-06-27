@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha4}"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-alpha5}"
 URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

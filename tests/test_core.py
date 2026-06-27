@@ -237,3 +237,23 @@ def test_alpha3_database_migrates_without_losing_client(tmp_path, monkeypatch):
     assert client["allowed_ips"] == "0.0.0.0/0"
     assert client["access_token"]
     assert settings["isolate_clients"] == 1
+
+
+def test_diagnostic_report_redacts_keys(monkeypatch):
+    monkeypatch.setattr(core, "get_awg_diagnostics", lambda: {
+        "service_state": "active", "awg_enabled": True, "awg_uptime": "1 ч",
+        "panel_state": "active", "panel_enabled": True, "panel_uptime": "2 ч",
+        "panel_rss_text": "44.0 MiB", "module_loaded": True, "installed": True,
+        "interface_present": True, "listen_port": 585,
+        "udp": {"listening": True}, "ip_forward": True, "nat_rule": True,
+        "boot_ready": True, "public_ipv4": "203.0.113.10",
+        "external_interface": "ens5", "config_exists": True,
+        "config_path": "/etc/amnezia/amneziawg/awg0.conf", "backups": [],
+        "resources": {"memory_percent": 40, "load1": 0.1, "load5": 0.2, "load15": 0.3},
+        "server_logs": "PrivateKey = secret-value",
+        "panel_logs": "GET /a/supersecrettoken123456789 HTTP/1.1",
+    })
+    report = core.build_diagnostic_report()
+    assert "secret-value" not in report
+    assert "supersecrettoken" not in report
+    assert "[REDACTED]" in report

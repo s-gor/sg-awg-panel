@@ -4,23 +4,24 @@
 
 Проект не использует Xray и не является модулем SG-Panel. Он управляет собственным AWG-сервером: интерфейсом `awg0`, клиентами, ключами, Routing, DNS, доступом к конфигам, резервными копиями и диагностикой.
 
-Текущая версия: **v0.1.0-alpha4**.
+Текущая версия: **v0.1.0-alpha5**.
 
 ## Что уже работает
 
 - нативная установка без Docker на Ubuntu 22.04/24.04;
 - AmneziaWG kernel module, `awg0`, IPv4 forwarding и NAT;
 - одна кнопка **«Сохранить и запустить»**;
-- отдельные страницы Overview, Server, Clients, Access, Routing, DNS, Diagnostics, Backups, Security и Settings;
+- страницы Overview, Server, Clients, Access, Routing, DNS, Diagnostics, Backups, Security и Settings;
 - создание, включение, отключение, удаление и пересоздание ключей клиентов;
 - `.conf`, QR-код и персональная ссылка на актуальный конфиг;
 - полный или выборочный `AllowedIPs` для каждого клиента;
 - изоляция клиентов друг от друга;
-- handshake, RX/TX и реальная память процесса панели;
-- автоматические и ручные резервные копии;
-- восстановление из панели;
-- смена пароля администратора;
-- лёгкое обновление без `apt`, `dpkg` и перезапуска AWG.
+- handshake, RX/TX, uptime и реальная память процесса панели;
+- автоматические ежедневные и ручные резервные копии;
+- безопасный диагностический отчёт без ключей и токенов;
+- защита входа от перебора пароля;
+- лёгкое обновление без `apt`, `dpkg` и перезапуска рабочего AWG;
+- необязательная установка HTTPS через Nginx и Let’s Encrypt.
 
 Схема работы:
 
@@ -43,15 +44,23 @@ AmneziaVPN / AmneziaWG client
 - Ubuntu 22.04 или 24.04;
 - публичный IPv4;
 - TCP `22` — только со своего IP;
-- TCP `8080` — только со своего IP;
+- TCP `8080` — только со своего IP, пока не настроен HTTPS;
 - UDP `585` — для AWG-клиентов.
 
 ## Чистая установка
 
+Под обычным пользователем вставьте одним блоком:
+
 ```bash
-sudo -i
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha4/install-from-github.sh -o /root/install-sg-awg-panel.sh
-bash /root/install-sg-awg-panel.sh
+bash <<'BASH'
+set -Eeuo pipefail
+tmp="$(mktemp /tmp/sg-awg-install.XXXXXX.sh)"
+trap 'rm -f "$tmp"' EXIT
+curl -fsSL \
+  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha5/install-from-github.sh \
+  -o "$tmp"
+sudo bash "$tmp"
+BASH
 ```
 
 После установки откройте:
@@ -82,14 +91,28 @@ ss -lunp | grep ':585'
 sudo awg show awg0
 ```
 
+На странице **Diagnostics** должны быть зелёными автозапуск, `awg0.conf`, IPv4 forwarding и NAT. После этого можно проверить восстановление после `reboot`.
+
 ## Обновление
 
-При обновлении установленной панели системные пакеты не трогаются:
-
 ```bash
-sudo SG_AWG_PANEL_VERSION=v0.1.0-alpha4 \
+sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha5 \
   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
+
+Обновление сохраняет базу, `web.env`, `awg0.conf`, клиентов и ключи. Рабочий AWG-туннель не перезапускается.
+
+## Необязательный HTTPS
+
+Сначала направьте домен на публичный IP сервера и откройте TCP 80/443. Затем:
+
+```bash
+sudo bash /opt/sg-awg-panel/deploy/enable-https.sh \
+  --domain awg.example.com \
+  --email you@example.com
+```
+
+После успешной установки закройте публичный TCP 8080.
 
 ## Документация
 
@@ -100,16 +123,16 @@ sudo SG_AWG_PANEL_VERSION=v0.1.0-alpha4 \
 - [Персональные ссылки Access](docs/ACCESS.md)
 - [Routing и AllowedIPs](docs/ROUTING.md)
 - [DNS](docs/DNS.md)
-- [Диагностика](docs/DIAGNOSTICS.md)
+- [Диагностика и reboot](docs/DIAGNOSTICS.md)
 - [Резервные копии и обновление](docs/MAINTENANCE.md)
 - [Безопасность](docs/SECURITY.md)
+- [HTTPS](docs/HTTPS.md)
 - [Удаление](docs/UNINSTALL.md)
 
-## Ограничения Alpha 4
+## Ограничения Alpha 5
 
 - только IPv4;
 - один интерфейс `awg0`;
-- панель пока работает по HTTP на порту `8080`;
 - доменные и гео-правила пока не реализованы;
 - Docker Compose будет дополнительным, а не основным способом установки.
 

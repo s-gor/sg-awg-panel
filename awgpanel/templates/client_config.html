@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block section %}CLIENT CONFIG{% endblock %}
+{% block heading %}{{ client.name }}{% endblock %}
+{% block subtitle %}Импорт через QR-код или файл .conf — длинный текст вручную вставлять не нужно{% endblock %}
+{% block content %}
+<section class="link-grid">
+  <article class="panel-card center"><div class="qr-frame"><img src="{{ qr_data }}" alt="QR-код"></div><p class="muted">QR удобен для AmneziaVPN на телефоне.</p><a class="button primary wide" href="{{ url_for('client_download', client_id=client.id) }}">Скачать .conf</a></article>
+  <article class="panel-card"><div class="section-head"><div><h2>Конфигурация</h2><p class="muted">На Windows: AmneziaVPN → добавить конфигурацию из файла.</p></div><form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" onsubmit="return confirm('Пересоздать ключи? Старый файл и QR-код перестанут работать.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Пересоздать ключи</button></form></div><textarea class="config-box" rows="24" readonly>{{ config_text }}</textarea><a class="button" href="{{ url_for('clients_page') }}">Назад к клиентам</a></article>
+</section>
+{% endblock %}

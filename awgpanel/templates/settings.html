@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block section %}SETTINGS{% endblock %}
+{% block heading %}Настройки панели{% endblock %}
+{% block subtitle %}Системные пути и способ установки{% endblock %}
+{% block content %}
+<section class="panel-card narrow-card"><div class="key-values one-column"><div><span>Версия</span><strong>{{ version }}</strong></div><div><span>Режим установки</span><strong>Native / systemd</strong></div><div><span>Адрес панели</span><strong>{{ bind_address }}:{{ port }}</strong></div><div><span>SQLite</span><strong>{{ db_path }}</strong></div><div><span>AWG config directory</span><strong>{{ config_dir }}</strong></div></div><div class="alert success">Docker Compose будет дополнительным способом установки. Нативная установка остаётся основной для слабых VPS.</div></section>
+{% endblock %}

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block section %}BACKUPS{% endblock %}
+{% block heading %}Резервные копии{% endblock %}
+{% block subtitle %}SQLite-база и awg0.conf перед каждым опасным изменением{% endblock %}
+{% block content %}
+<section class="panel-card"><div class="section-head"><div><h2>Копии состояния</h2><p class="muted">При восстановлении сначала автоматически создаётся ещё одна страховочная копия.</p></div><form method="post" action="{{ url_for('backup_create') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit">Создать сейчас</button></form></div><div class="table-wrap"><table><thead><tr><th>Копия</th><th>Причина</th><th>Состояние AWG</th><th>Действие</th></tr></thead><tbody>{% for backup in backups %}<tr><td><code>{{ backup.name }}</code></td><td>{{ backup.reason or '—' }}</td><td>{{ backup.service_state or '—' }}</td><td><form method="post" action="{{ url_for('backup_restore', name=backup.name) }}" onsubmit="return confirm('Восстановить эту копию? Текущее состояние будет сохранено отдельно.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Восстановить</button></form></td></tr>{% else %}<tr><td colspan="4" class="empty">Резервных копий пока нет.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

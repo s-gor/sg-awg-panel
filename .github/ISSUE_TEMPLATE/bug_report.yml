@@ -1,0 +1,31 @@
+name: Bug report
+about: Сообщить об ошибке SG-AWG-Panel
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    attributes:
+      label: Версия SG-AWG-Panel
+      placeholder: v0.1.0-alpha4
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Ubuntu и ядро
+      placeholder: Ubuntu 24.04, kernel 6.x
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Что делали
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Что произошло
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Текст ошибки или журнал
+      description: Удалите приватные ключи, preshared key, токены Access и пароли.

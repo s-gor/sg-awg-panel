@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block section %}CLIENTS{% endblock %}
+{% block heading %}Клиенты{% endblock %}
+{% block subtitle %}Отдельный профиль для каждого компьютера, телефона или роутера{% endblock %}
+{% block content %}
+<section class="panel-card">
+  <div class="section-head"><div><h2>Новый клиент</h2><p class="muted">Изменения применяются к работающему серверу автоматически.</p></div></div>
+  {% if awg.configured %}<form class="inline-create-form" method="post" action="{{ url_for('client_add') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Название<input name="name" placeholder="Windows-PC" required></label><label>Комментарий<input name="comment" placeholder="необязательно"></label><button class="button primary" type="submit">Создать клиента</button></form>{% else %}<div class="empty-state"><span>!</span><h3>Сервер ещё не настроен</h3><p>Сначала откройте Server и сохраните конфигурацию.</p></div>{% endif %}
+</section>
+<section class="panel-card">
+  <div class="section-head"><div><h2>Устройства</h2><p class="muted">Handshake и трафик берутся напрямую из интерфейса awg0.</p></div><span class="pill">{{ awg.clients|length }}</span></div>
+  <div class="table-wrap"><table><thead><tr><th>Клиент</th><th>Адрес</th><th>Подключение</th><th>RX / TX</th><th>Действия</th></tr></thead><tbody>
+  {% for client in awg.clients %}<tr class="{{ 'disabled' if not client.enabled else '' }}"><td><strong>{{ client.name }}</strong><br><span class="muted">{{ client.comment or 'без комментария' }}</span></td><td><code>{{ client.address }}</code></td><td>{{ client.latest_handshake_text }}</td><td>{{ client.rx_text }} / {{ client.tx_text }}</td><td><div class="row-actions"><a class="button small primary" href="{{ url_for('client_access', client_id=client.id) }}">Конфиг / QR</a><form method="post" action="{{ url_for('client_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if client.enabled else 'Включить' }}</button></form><form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" onsubmit="return confirm('Удалить клиента и отозвать его доступ?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Удалить</button></form></div></td></tr>{% else %}<tr><td colspan="5" class="empty">Клиенты ещё не созданы.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

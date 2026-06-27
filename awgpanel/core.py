@@ -161,6 +161,22 @@ def _validate_dns_servers(value: object) -> str:
     return ", ".join(normalized)
 
 
+def _validate_allowed_ips(value: object) -> str:
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError("AllowedIPs не может быть пустым")
+    items = [item.strip() for item in raw.split(",")]
+    if not 1 <= len(items) <= 32 or any(not item for item in items):
+        raise ValueError("Укажите от одной до 32 сетей CIDR через запятую")
+    normalized: list[str] = []
+    for item in items:
+        try:
+            normalized.append(str(ipaddress.ip_network(item, strict=False)))
+        except ValueError as exc:
+            raise ValueError(f"Некорректная сеть AllowedIPs: {item}") from exc
+    return ", ".join(normalized)
+
+
 def _validate_settings(values: dict[str, object]) -> dict[str, object]:
     interface_name = str(values.get("interface_name", "awg0")).strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", interface_name):
@@ -217,6 +233,7 @@ def _validate_settings(values: dict[str, object]) -> dict[str, object]:
         "dns_servers": dns_servers,
         "mtu": mtu,
         "external_interface": external_interface,
+        "isolate_clients": 1 if str(values.get("isolate_clients", "1")).lower() in {"1", "true", "yes", "on"} else 0,
         "jc": jc,
         "jmin": jmin,
         "jmax": jmax,
@@ -452,6 +469,21 @@ def render_awg_server_config() -> str:
         raise AWGPanelError("AmneziaWG ещё не настроен")
     ext = settings["external_interface"]
     interface_name = settings["interface_name"]
+    up_commands: list[str] = []
+    down_commands: list[str] = []
+    if bool(settings["isolate_clients"]):
+        up_commands.append(f"iptables -I FORWARD 1 -i {interface_name} -o {interface_name} -j DROP")
+        down_commands.append(f"iptables -D FORWARD -i {interface_name} -o {interface_name} -j DROP")
+    up_commands.extend([
+        f"iptables -A FORWARD -i {interface_name} -j ACCEPT",
+        f"iptables -A FORWARD -o {interface_name} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
+        f"iptables -t nat -A POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE",
+    ])
+    down_commands.extend([
+        f"iptables -D FORWARD -i {interface_name} -j ACCEPT",
+        f"iptables -D FORWARD -o {interface_name} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
+        f"iptables -t nat -D POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE",
+    ])
     lines = [
         "[Interface]",
         f"Address = {_server_address(settings)}",
@@ -460,8 +492,8 @@ def render_awg_server_config() -> str:
         f"MTU = {settings['mtu']}",
         *_obfuscation_lines(settings),
         "",
-        f"PostUp = iptables -A FORWARD -i {interface_name} -j ACCEPT; iptables -A FORWARD -o {interface_name} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -t nat -A POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE",
-        f"PostDown = iptables -D FORWARD -i {interface_name} -j ACCEPT; iptables -D FORWARD -o {interface_name} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -t nat -D POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE",
+        "PostUp = " + "; ".join(up_commands),
+        "PostDown = " + "; ".join(down_commands),
     ]
     for client in list_awg_clients(enabled_only=True):
         lines.extend(
@@ -496,7 +528,7 @@ def render_awg_client_config(client_id: int) -> str:
         "[Peer]",
         f"PublicKey = {settings['public_key']}",
         f"PresharedKey = {client['preshared_key']}",
-        "AllowedIPs = 0.0.0.0/0",
+        f"AllowedIPs = {client['allowed_ips']}",
         f"Endpoint = {endpoint_host}:{settings['listen_port']}",
         "PersistentKeepalive = 25",
     ]
@@ -551,6 +583,7 @@ def _configure_awg_impl(**values):
         "server_network": "10.77.0.0/24", "dns_servers": "1.1.1.1, 1.0.0.1",
         "mtu": 1280, "jc": 6, "jmin": 64, "jmax": 128,
         "s1": 48, "s2": 48, "s3": 32, "s4": 16,
+        "isolate_clients": 1,
         "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
     }.items():
         values.setdefault(key, current[key] if current["configured"] else default)
@@ -566,7 +599,7 @@ def _configure_awg_impl(**values):
                 listen_port=?, server_network=?, dns_servers=?, mtu=?, external_interface=?,
                 private_key=?, public_key=?, jc=?, jmin=?, jmax=?, s1=?, s2=?, s3=?, s4=?,
                 h1=?, h2=?, h3=?, h4=?, i1=?, i2=?, i3=?, i4=?, i5=?,
-                updated_at=CURRENT_TIMESTAMP WHERE id=1
+                isolate_clients=?, updated_at=CURRENT_TIMESTAMP WHERE id=1
             """,
             (
                 validated["interface_name"], validated["endpoint_host"],
@@ -577,7 +610,7 @@ def _configure_awg_impl(**values):
                 validated["s3"], validated["s4"], validated["h1"],
                 validated["h2"], validated["h3"], validated["h4"],
                 validated["i1"], validated["i2"], validated["i3"],
-                validated["i4"], validated["i5"],
+                validated["i4"], validated["i5"], validated["isolate_clients"],
             ),
         )
     _write_server_config()
@@ -627,10 +660,12 @@ def add_awg_client(name: str, comment: str = ""):
                 cursor = con.execute(
                     """
                     INSERT INTO awg_clients
-                        (name, address, private_key, public_key, preshared_key, comment)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (name, address, private_key, public_key, preshared_key, comment,
+                         allowed_ips, access_token, access_enabled)
+                    VALUES (?, ?, ?, ?, ?, ?, '0.0.0.0/0', ?, 1)
                     """,
-                    (name, address, private_key, public_key, preshared_key, comment.strip()),
+                    (name, address, private_key, public_key, preshared_key, comment.strip(),
+                     secrets.token_urlsafe(24)),
                 )
                 client_id = int(cursor.lastrowid)
         except Exception as exc:
@@ -700,6 +735,125 @@ def delete_awg_client(client_id: int):
         return client
     except Exception:
         _restore_backup(backup)
+        raise
+
+
+def update_awg_client_routing(client_id: int, allowed_ips: str):
+    _require_root()
+    find_awg_client(client_id)
+    normalized = _validate_allowed_ips(allowed_ips)
+    backup = _backup_state("client-routing")
+    try:
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_clients SET allowed_ips=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (normalized, client_id),
+            )
+        return find_awg_client(client_id)
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def update_routing_settings(*, isolate_clients: bool):
+    _require_root()
+    backup = _backup_state("routing-settings")
+    try:
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_settings SET isolate_clients=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (1 if isolate_clients else 0,),
+            )
+        _write_server_config()
+        _reload_if_active()
+        return get_awg_settings()
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def update_dns_servers(dns_servers: str):
+    _require_root()
+    normalized = _validate_dns_servers(dns_servers)
+    backup = _backup_state("dns-settings")
+    try:
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_settings SET dns_servers=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (normalized,),
+            )
+        return get_awg_settings()
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def set_client_access_enabled(client_id: int, enabled: bool):
+    _require_root()
+    find_awg_client(client_id)
+    with connect() as con:
+        con.execute(
+            "UPDATE awg_clients SET access_enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (1 if enabled else 0, client_id),
+        )
+    return find_awg_client(client_id)
+
+
+def regenerate_client_access_token(client_id: int):
+    _require_root()
+    find_awg_client(client_id)
+    with connect() as con:
+        con.execute(
+            "UPDATE awg_clients SET access_token=?, access_downloads=0, access_last_at=NULL, "
+            "access_enabled=1, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (secrets.token_urlsafe(24), client_id),
+        )
+    return find_awg_client(client_id)
+
+
+def find_client_by_access_token(token: str):
+    init_db()
+    if not token or len(token) > 256:
+        raise AWGPanelError("Ссылка доступа недействительна")
+    with connect() as con:
+        row = con.execute(
+            "SELECT * FROM awg_clients WHERE access_token=? AND access_enabled=1 AND enabled=1",
+            (token,),
+        ).fetchone()
+    if row is None:
+        raise AWGPanelError("Ссылка доступа недействительна или отключена")
+    return row
+
+
+def record_client_access(client_id: int) -> None:
+    with connect() as con:
+        con.execute(
+            "UPDATE awg_clients SET access_downloads=access_downloads+1, "
+            "access_last_at=CURRENT_TIMESTAMP WHERE id=?",
+            (client_id,),
+        )
+
+
+def create_manual_backup() -> Path:
+    return _backup_state("manual")
+
+
+def restore_backup(name: str) -> Path:
+    _require_root()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise AWGPanelError("Некорректное имя резервной копии")
+    backup = (BACKUP_DIR / name).resolve()
+    if backup.parent != BACKUP_DIR.resolve() or not backup.is_dir():
+        raise AWGPanelError("Резервная копия не найдена")
+    safety = _backup_state("before-restore")
+    try:
+        _restore_backup(backup)
+        if get_awg_settings()["configured"]:
+            _write_server_config()
+            _reload_if_active()
+        return backup
+    except Exception:
+        _restore_backup(safety)
         raise
 
 
@@ -908,6 +1062,10 @@ def get_awg_overview() -> dict[str, object]:
     panel_pid = _service_main_pid("sg-awg-panel")
     panel_rss = _process_rss(panel_pid)
     endpoint_detected = "" if settings["endpoint_host"] else detect_public_ipv4()
+    total_rx = sum(int(item["rx"]) for item in clients)
+    total_tx = sum(int(item["tx"]) for item in clients)
+    active_clients = sum(1 for item in clients if int(item["latest_handshake"]) > 0 and time.time() - int(item["latest_handshake"]) < 180)
+    backups = list_backups(limit=1)
     return {
         "installed": installed,
         "module_loaded": module_loaded,
@@ -921,5 +1079,11 @@ def get_awg_overview() -> dict[str, object]:
         "panel_rss": panel_rss,
         "panel_rss_text": _format_bytes(panel_rss),
         "resources": _system_resources(),
+        "total_rx": total_rx,
+        "total_tx": total_tx,
+        "total_rx_text": _format_bytes(total_rx),
+        "total_tx_text": _format_bytes(total_tx),
+        "active_clients": active_clients,
+        "latest_backup": backups[0] if backups else None,
     }
 

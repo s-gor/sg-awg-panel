@@ -14,25 +14,26 @@ def login(client):
     assert response.status_code == 302
 
 
+def settings():
+    return {
+        "endpoint_host": "", "listen_port": 585, "interface_name": "awg0",
+        "server_network": "10.77.0.0/24", "dns_servers": "1.1.1.1, 1.0.0.1",
+        "external_interface": "", "mtu": 1280, "isolate_clients": 1,
+        "jc": 6, "jmin": 64, "jmax": 128,
+        "s1": 48, "s2": 48, "s3": 32, "s4": 16,
+        "h1": "", "h2": "", "h3": "", "h4": "",
+        "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
+    }
+
+
 def overview():
     return {
-        "service_state": "inactive",
-        "installed": True,
-        "module_loaded": True,
-        "configured": False,
-        "clients": [],
-        "panel_rss_text": "12.0 MiB",
+        "service_state": "inactive", "installed": True, "module_loaded": True,
+        "configured": False, "clients": [], "active_clients": 0,
+        "panel_rss_text": "12.0 MiB", "total_rx_text": "0 B", "total_tx_text": "0 B",
+        "latest_backup": None,
         "resources": {"memory_percent": 20, "load1": 0, "load5": 0, "load15": 0},
-        "settings": {
-            "endpoint_host": "", "listen_port": 585,
-            "server_network": "10.77.0.0/24", "dns_servers": "1.1.1.1, 1.0.0.1",
-            "external_interface": "", "mtu": 1280,
-            "jc": 6, "jmin": 64, "jmax": 128,
-            "s1": 48, "s2": 48, "s3": 32, "s4": 16,
-            "h1": "", "h2": "", "h3": "", "h4": "",
-            "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
-        },
-        "public_ipv4_detected": "203.0.113.10",
+        "settings": settings(), "public_ipv4_detected": "203.0.113.10",
         "external_interface_detected": "ens5",
         "config_path": "/etc/amnezia/amneziawg/awg0.conf",
     }
@@ -57,34 +58,37 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setenv("AWGPANEL_SECRET_KEY", "test-secret")
     monkeypatch.setattr(web, "get_awg_overview", overview)
     monkeypatch.setattr(web, "get_awg_diagnostics", diagnostics_data)
+    monkeypatch.setattr(web, "get_awg_settings", settings)
+    monkeypatch.setattr(web, "list_awg_clients", lambda: [])
+    monkeypatch.setattr(web, "list_backups", lambda limit=10: [])
     app = web.create_app()
     app.config.update(TESTING=True)
     return app.test_client()
 
 
-def test_health_login_dashboard_and_diagnostics(tmp_path, monkeypatch):
+def test_health_login_and_new_navigation(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
-
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.data == b"ok\n"
-
-    response = client.get("/")
-    assert response.status_code == 302
-    assert "/login" in response.headers["Location"]
-
+    assert client.get("/health").data == b"ok\n"
+    assert client.get("/").status_code == 302
     login(client)
+
     response = client.get("/")
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "ПАМЯТЬ ПАНЕЛИ" in text
+    assert "Routing" in text
+    assert "Доступ" in text
+
+    response = client.get("/server")
     assert response.status_code == 200
     assert "Сохранить и запустить" in response.get_data(as_text=True)
-    assert "Память панели" in response.get_data(as_text=True)
 
     response = client.get("/diagnostics")
     assert response.status_code == 200
-    assert "Автоматические резервные копии" in response.get_data(as_text=True)
+    assert "UDP 585" in response.get_data(as_text=True)
 
 
-def test_one_click_save_route(tmp_path, monkeypatch):
+def test_one_click_server_save(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     calls = []
     monkeypatch.setattr(web, "configure_and_start_awg", lambda **values: (calls.append(values), "active"))
@@ -92,17 +96,46 @@ def test_one_click_save_route(tmp_path, monkeypatch):
     with client.session_transaction() as session:
         token = session["csrf_token"]
     response = client.post(
-        "/settings",
+        "/server",
         data={
-            "csrf_token": token,
-            "endpoint_host": "203.0.113.10",
-            "listen_port": "585",
-            "server_network": "10.77.0.0/24",
-            "dns_servers": "1.1.1.1, 1.0.0.1",
-            "external_interface": "ens5",
+            "csrf_token": token, "endpoint_host": "203.0.113.10",
+            "listen_port": "585", "server_network": "10.77.0.0/24",
+            "dns_servers": "1.1.1.1, 1.0.0.1", "external_interface": "ens5",
             "mtu": "1280",
         },
         follow_redirects=False,
     )
     assert response.status_code == 302
     assert calls and calls[0]["endpoint_host"] == "203.0.113.10"
+
+
+def test_public_access_link_returns_current_config(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    row = {"id": 7, "name": "Windows PC"}
+    recorded = []
+    monkeypatch.setattr(web, "find_client_by_access_token", lambda token: row if token == "good" else None)
+    monkeypatch.setattr(web, "render_awg_client_config", lambda client_id: "[Interface]\nAddress = 10.77.0.2/32\n")
+    monkeypatch.setattr(web, "record_client_access", lambda client_id: recorded.append(client_id))
+    response = client.get("/a/good")
+    assert response.status_code == 200
+    assert b"Address = 10.77.0.2/32" in response.data
+    assert "Windows-PC-awg.conf" in response.headers["Content-Disposition"]
+    assert recorded == [7]
+
+
+def test_routing_page_is_separate(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    login(client)
+    response = client.get("/routing")
+    assert response.status_code == 200
+    text = response.get_data(as_text=True)
+    assert "Изолировать клиентов" in text
+    assert "AllowedIPs" in text
+
+
+def test_all_main_pages_render(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    login(client)
+    for path in ("/clients", "/access", "/routing", "/dns", "/backups", "/security", "/settings"):
+        response = client.get(path)
+        assert response.status_code == 200, path

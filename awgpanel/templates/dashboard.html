@@ -1,129 +1,36 @@
 {% extends "base.html" %}
+{% block section %}OVERVIEW{% endblock %}
+{% block heading %}Обзор{% endblock %}
+{% block subtitle %}Главное состояние сервера без технических настроек{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>AmneziaWG Server</h1>
-    <p class="muted">Отдельный сервер AWG 2.0 без Xray, WARP и других модулей.</p>
-  </div>
-  <div class="status {{ 'ok' if awg.service_state == 'active' else 'warn' }}">{{ awg.service_state }}</div>
-</div>
-
-<section class="stats-grid">
-  <div class="card"><span>Пакет AWG</span><strong>{{ 'установлен' if awg.installed else 'не установлен' }}</strong></div>
-  <div class="card"><span>Kernel module</span><strong>{{ 'загружен' if awg.module_loaded else 'не загружен' }}</strong></div>
-  <div class="card"><span>Клиенты</span><strong>{{ awg.clients|length }}</strong></div>
-  <div class="card"><span>Память панели</span><strong>{{ awg.panel_rss_text }}</strong><small>Система: {{ awg.resources.memory_percent }}%</small></div>
+<section class="metric-grid">
+  <a class="metric-card" href="{{ url_for('server_page') }}"><div class="metric-top"><span class="metric-label">AWG SERVER</span><span class="status-dot {{ 'online' if awg.service_state == 'active' else 'offline' }}"></span></div><strong>{{ awg.service_state }}</strong><small>UDP {{ awg.settings.listen_port }} · {{ awg.settings.interface_name }}</small></a>
+  <a class="metric-card" href="{{ url_for('clients_page') }}"><div class="metric-top"><span class="metric-label">КЛИЕНТЫ</span></div><strong>{{ awg.active_clients }} / {{ awg.clients|length }}</strong><small>активных за последние 3 минуты</small></a>
+  <div class="metric-card"><div class="metric-top"><span class="metric-label">ТРАФИК</span></div><strong>{{ awg.total_rx_text }}</strong><small>RX · TX {{ awg.total_tx_text }}</small></div>
+  <a class="metric-card" href="{{ url_for('diagnostics') }}"><div class="metric-top"><span class="metric-label">ПАМЯТЬ ПАНЕЛИ</span></div><strong>{{ awg.panel_rss_text }}</strong><small>система {{ awg.resources.memory_percent }}%</small></a>
+  <div class="metric-card"><div class="metric-top"><span class="metric-label">KERNEL MODULE</span></div><strong>{{ 'loaded' if awg.module_loaded else 'missing' }}</strong><small>{{ 'пакет установлен' if awg.installed else 'пакет не найден' }}</small></div>
+  <a class="metric-card" href="{{ url_for('backups_page') }}"><div class="metric-top"><span class="metric-label">ПОСЛЕДНЯЯ КОПИЯ</span></div><strong class="small-value">{{ awg.latest_backup.name if awg.latest_backup else 'ещё нет' }}</strong><small>создаётся перед изменениями</small></a>
 </section>
 
-{% if not awg.installed %}
-<section class="card warning-box">
-  <h2>AmneziaWG ещё не установлен</h2>
-  <p>На сервере выполните:</p>
-  <pre>sudo bash /opt/sg-awg-panel/deploy/install-amneziawg.sh</pre>
-</section>
-{% endif %}
-
-<section class="card">
-  <div class="section-head">
-    <div>
-      <h2>Сервер</h2>
-      <p class="muted">Измените параметры и нажмите одну кнопку. Панель создаст резервную копию, проверит конфигурацию и запустит или перезапустит AWG.</p>
+<section class="dashboard-grid">
+  <article class="panel-card">
+    <div class="section-head"><div><p class="eyebrow">ТЕКУЩАЯ СХЕМА</p><h2>Как идёт трафик</h2></div><span class="pill {{ 'success' if awg.service_state == 'active' else 'warning' }}">{{ awg.service_state }}</span></div>
+    <div class="flow-line"><span>Клиент</span><b>→</b><span>UDP {{ awg.settings.listen_port }}</span><b>→</b><span>awg0</span><b>→</b><span>AWS / Интернет</span></div>
+    <div class="key-values compact-kv">
+      <div><span>Endpoint</span><strong>{{ awg.settings.endpoint_host or awg.public_ipv4_detected or 'не настроен' }}</strong></div>
+      <div><span>Сеть клиентов</span><strong>{{ awg.settings.server_network }}</strong></div>
+      <div><span>DNS</span><strong>{{ awg.settings.dns_servers }}</strong></div>
+      <div><span>Изоляция клиентов</span><strong>{{ 'включена' if awg.settings.isolate_clients else 'отключена' }}</strong></div>
     </div>
-    {% if awg.service_state == 'active' %}
-    <form method="post" action="{{ url_for('service_action', action='stop') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="button danger" type="submit">Остановить сервер</button>
-    </form>
-    {% endif %}
-  </div>
-  <form method="post" action="{{ url_for('save_settings') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="form-grid">
-      <label>Публичный IP или домен
-        <input name="endpoint_host" value="{{ awg.settings.endpoint_host or awg.public_ipv4_detected }}" placeholder="определится автоматически" required>
-        {% if awg.public_ipv4_detected and not awg.settings.endpoint_host %}<small>Определён автоматически: {{ awg.public_ipv4_detected }}</small>{% endif %}
-      </label>
-      <label>UDP-порт
-        <input type="number" min="1" max="65535" name="listen_port" value="{{ awg.settings.listen_port }}" required>
-      </label>
-      <label>Сеть клиентов
-        <input name="server_network" value="{{ awg.settings.server_network }}" required>
-      </label>
-      <label>DNS
-        <input name="dns_servers" value="{{ awg.settings.dns_servers }}" required>
-      </label>
-      <label>Внешний интерфейс
-        <input name="external_interface" value="{{ awg.settings.external_interface or awg.external_interface_detected }}" placeholder="определится автоматически" required>
-      </label>
-      <label>MTU
-        <input type="number" min="576" max="1500" name="mtu" value="{{ awg.settings.mtu }}" required>
-      </label>
+  </article>
+  <article class="panel-card">
+    <div class="section-head"><div><p class="eyebrow">БЫСТРЫЕ ДЕЙСТВИЯ</p><h2>Управление</h2></div></div>
+    <div class="quick-actions">
+      <a class="button primary" href="{{ url_for('clients_page') }}">Создать клиента</a>
+      <a class="button" href="{{ url_for('access_page') }}">Ссылки доступа</a>
+      <a class="button" href="{{ url_for('routing_page') }}">Правила Routing</a>
+      <a class="button" href="{{ url_for('diagnostics') }}">Диагностика</a>
     </div>
-
-    <details>
-      <summary>Параметры маскировки AWG 2.0</summary>
-      <p class="muted">Для первого запуска значения можно не менять. H1–H4 создаются автоматически и не пересекаются.</p>
-      <div class="form-grid compact">
-        {% for name in ['jc','jmin','jmax','s1','s2','s3','s4'] %}
-        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>
-        {% endfor %}
-        {% for name in ['h1','h2','h3','h4'] %}
-        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}" placeholder="создастся автоматически"></label>
-        {% endfor %}
-        {% for name in ['i1','i2','i3','i4','i5'] %}
-        <label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>
-        {% endfor %}
-      </div>
-    </details>
-    <button class="button primary large" type="submit">Сохранить и {{ 'перезапустить' if awg.service_state == 'active' else 'запустить' }}</button>
-  </form>
-</section>
-
-<section class="card">
-  <div class="section-head">
-    <div><h2>Клиенты</h2><p class="muted">Каждому устройству создаётся отдельная конфигурация и QR-код. Изменения применяются автоматически.</p></div>
-  </div>
-  {% if awg.configured %}
-  <form class="inline-form" method="post" action="{{ url_for('client_add') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="name" placeholder="Название устройства" required>
-    <input name="comment" placeholder="Комментарий">
-    <button class="button primary" type="submit">Создать клиента</button>
-  </form>
-  {% else %}
-  <p class="muted">Сначала сохраните и запустите конфигурацию сервера.</p>
-  {% endif %}
-
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Клиент</th><th>Адрес</th><th>Последнее подключение</th><th>RX / TX</th><th>Действия</th></tr></thead>
-      <tbody>
-      {% for client in awg.clients %}
-        <tr class="{{ 'disabled' if not client.enabled else '' }}">
-          <td><strong>{{ client.name }}</strong><br><span class="muted">{{ client.comment }}</span></td>
-          <td><code>{{ client.address }}</code></td>
-          <td>{{ client.latest_handshake_text }}</td>
-          <td>{{ client.rx_text }} / {{ client.tx_text }}</td>
-          <td class="row-actions">
-            <a class="button small" href="{{ url_for('client_access', client_id=client.id) }}">Конфиг / QR</a>
-            <form method="post" action="{{ url_for('client_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if client.enabled else 'Включить' }}</button></form>
-            <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" onsubmit="return confirm('Удалить клиента и отозвать его доступ?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Удалить</button></form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="5" class="muted">Клиенты ещё не созданы.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="card diagnostics-summary">
-  <div>
-    <h2>Быстрая проверка</h2>
-    <p>Load average: <strong>{{ awg.resources.load1 }} / {{ awg.resources.load5 }} / {{ awg.resources.load15 }}</strong></p>
-    <p>Конфигурация: <code>{{ awg.config_path }}</code></p>
-  </div>
-  <a class="button" href="{{ url_for('diagnostics') }}">Открыть диагностику</a>
+  </article>
 </section>
 {% endblock %}

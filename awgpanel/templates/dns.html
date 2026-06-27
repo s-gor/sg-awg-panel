@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block section %}DNS{% endblock %}
+{% block heading %}DNS{% endblock %}
+{% block subtitle %}DNS-серверы, которые записываются в новые клиентские конфигурации{% endblock %}
+{% block content %}
+<section class="panel-card narrow-card"><h2>DNS клиентов</h2><p class="muted">Можно указать от одного до четырёх IP-адресов через запятую. Изменение не влияет на уже импортированные конфиги — их нужно скачать заново.</p><form method="post" action="{{ url_for('dns_save') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>DNS-серверы<input name="dns_servers" value="{{ settings.dns_servers }}" required></label><div class="preset-row"><button class="button small" type="button" onclick="this.form.dns_servers.value='1.1.1.1, 1.0.0.1'">Cloudflare</button><button class="button small" type="button" onclick="this.form.dns_servers.value='8.8.8.8, 8.8.4.4'">Google</button><button class="button small" type="button" onclick="this.form.dns_servers.value='9.9.9.9, 149.112.112.112'">Quad9</button></div><button class="button primary" type="submit">Сохранить DNS</button></form></section>
+{% endblock %}

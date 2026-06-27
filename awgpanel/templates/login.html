@@ -1,15 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Вход · SG-AWG-Panel{% endblock %}
-{% block content %}
-<section class="card narrow">
-  <h1>Вход</h1>
-  <p class="muted">Отдельная панель только для AmneziaWG 2.0.</p>
-  <form method="post" action="{{ url_for('login_post') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Пароль администратора
-      <input type="password" name="password" autocomplete="current-password" required autofocus>
-    </label>
-    <button class="button primary" type="submit">Войти</button>
-  </form>
+{% block login_content %}
+<section class="login-card">
+  <div class="login-card-line"></div>
+  <div class="login-header">
+    <div class="login-logo"><svg viewBox="0 0 72 72"><path class="logo-hex" d="M36 4 64 20v32L36 68 8 52V20L36 4Z"/><text x="36" y="42" text-anchor="middle">AWG</text></svg></div>
+    <div class="login-brand-copy"><p class="login-kicker">SECURE ACCESS</p><h1>SG-AWG-Panel</h1><div class="login-status"><span></span>AMNEZIAWG 2.0 <b>v{{ panel_version }}</b></div></div>
+  </div>
+  <div class="login-access"><h2>Вход в панель</h2><p class="login-intro">Управление собственным сервером AmneziaWG.</p>
+    <form class="login-form" method="post" action="{{ url_for('login_post') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Пароль администратора<input type="password" name="password" autocomplete="current-password" required autofocus></label>
+      <button class="button primary wide" type="submit">Войти</button>
+    </form>
+  </div>
 </section>
 {% endblock %}

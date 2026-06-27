@@ -1,6 +1,6 @@
 # Удаление
 
-Удалить web-панель, службы, базу, клиентов, ключи, резервные копии и `awg0.conf`:
+Удалить панель, службы, базу, клиентов, ключи, резервные копии и `awg0.conf`:
 
 ```bash
 sudo bash /opt/sg-awg-panel/deploy/uninstall.sh
@@ -11,8 +11,6 @@ sudo bash /opt/sg-awg-panel/deploy/uninstall.sh
 ```text
 DELETE SG-AWG-PANEL
 ```
-
-Пакет AmneziaWG и PPA при этом остаются установленными.
 
 Чтобы удалить также пакет AmneziaWG и PPA:
 

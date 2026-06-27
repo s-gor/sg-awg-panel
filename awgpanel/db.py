@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS awg_settings (
     i3 TEXT NOT NULL DEFAULT '',
     i4 TEXT NOT NULL DEFAULT '',
     i5 TEXT NOT NULL DEFAULT '',
+    isolate_clients INTEGER NOT NULL DEFAULT 1 CHECK (isolate_clients IN (0, 1)),
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -50,9 +52,15 @@ CREATE TABLE IF NOT EXISTS awg_clients (
     public_key TEXT NOT NULL UNIQUE,
     preshared_key TEXT NOT NULL,
     comment TEXT NOT NULL DEFAULT '',
+    allowed_ips TEXT NOT NULL DEFAULT '0.0.0.0/0',
+    access_token TEXT NOT NULL DEFAULT '',
+    access_enabled INTEGER NOT NULL DEFAULT 1 CHECK (access_enabled IN (0, 1)),
+    access_downloads INTEGER NOT NULL DEFAULT 0,
+    access_last_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 """
 
 
@@ -64,16 +72,56 @@ def connect() -> sqlite3.Connection:
     return con
 
 
+def _columns(con: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in con.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate(con: sqlite3.Connection) -> None:
+    settings_columns = _columns(con, "awg_settings")
+    if "isolate_clients" not in settings_columns:
+        con.execute(
+            "ALTER TABLE awg_settings ADD COLUMN isolate_clients INTEGER NOT NULL DEFAULT 1"
+        )
+
+    client_columns = _columns(con, "awg_clients")
+    migrations = {
+        "allowed_ips": "TEXT NOT NULL DEFAULT '0.0.0.0/0'",
+        "access_token": "TEXT NOT NULL DEFAULT ''",
+        "access_enabled": "INTEGER NOT NULL DEFAULT 1",
+        "access_downloads": "INTEGER NOT NULL DEFAULT 0",
+        "access_last_at": "TEXT",
+    }
+    for name, definition in migrations.items():
+        if name not in client_columns:
+            con.execute(f"ALTER TABLE awg_clients ADD COLUMN {name} {definition}")
+
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_awg_clients_access_token "
+        "ON awg_clients(access_token) WHERE access_token <> ''"
+    )
+
+    rows = con.execute(
+        "SELECT id FROM awg_clients WHERE access_token='' OR access_token IS NULL"
+    ).fetchall()
+    for row in rows:
+        con.execute(
+            "UPDATE awg_clients SET access_token=? WHERE id=?",
+            (secrets.token_urlsafe(24), int(row["id"])),
+        )
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as con:
         con.executescript(SCHEMA)
+        _migrate(con)
         con.execute(
             """
             INSERT OR IGNORE INTO awg_settings (
                 id, configured, interface_name, endpoint_host, listen_port,
-                server_network, dns_servers, mtu, external_interface
+                server_network, dns_servers, mtu, external_interface,
+                isolate_clients
             ) VALUES (1, 0, 'awg0', '', 585, '10.77.0.0/24',
-                      '1.1.1.1, 1.0.0.1', 1280, '')
+                      '1.1.1.1, 1.0.0.1', 1280, '', 1)
             """
         )

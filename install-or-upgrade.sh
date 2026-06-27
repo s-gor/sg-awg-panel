@@ -13,14 +13,9 @@ fail(){ printf '[SG-AWG-Panel] ERROR: %s\n' "$*" >&2; exit 1; }
 
 wait_for_apt(){
   local waited=0 timeout="${APT_LOCK_TIMEOUT:-900}"
-  while ps -eo comm= | grep -Eq '^(apt|apt-get|dpkg|unattended-upgr|unattended-upgrade)$'; do
-    (( waited == 0 )) && log "Waiting for Ubuntu background package update to finish"
-    (( waited >= timeout )) && fail "apt/dpkg is still busy after ${timeout} seconds"
-    sleep 5
-    waited=$((waited + 5))
-  done
-  while command -v fuser >/dev/null 2>&1 && fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
-    (( waited == 0 )) && log "Waiting for apt/dpkg locks"
+  local locks=(/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock)
+  while command -v fuser >/dev/null 2>&1 && fuser "${locks[@]}" >/dev/null 2>&1; do
+    (( waited == 0 )) && log "Waiting for real apt/dpkg locks"
     (( waited >= timeout )) && fail "apt/dpkg locks were not released after ${timeout} seconds"
     sleep 5
     waited=$((waited + 5))
@@ -32,10 +27,10 @@ wait_for_apt(){
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 3 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 4 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 3 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 4 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){
@@ -51,10 +46,14 @@ get_env(){
   printf '%s' "${value:-$default}"
 }
 
-log "Ubuntu ${VERSION_ID}; starting installation"
-wait_for_apt
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip rsync ca-certificates
+if [[ -x "$PROJECT_DIR/.venv/bin/python" && -f "$ENV_FILE" ]]; then
+  log "Ubuntu ${VERSION_ID}; existing installation detected - system packages will not be touched"
+else
+  log "Ubuntu ${VERSION_ID}; starting clean installation"
+  wait_for_apt
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv python3-pip rsync ca-certificates
+fi
 
 mkdir -p "$BACKUP_DIR" "$DATA_DIR" "$ENV_DIR"
 if [[ -f "$DATA_DIR/panel.db" ]]; then
@@ -97,6 +96,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   cat > "$ENV_FILE" <<ENVEOF
 AWGPANEL_SECRET_KEY=$SECRET_KEY
 AWGPANEL_PASSWORD_HASH=$PASSWORD_HASH
+AWGPANEL_ENV_FILE=/etc/sg-awg-panel/web.env
 AWGPANEL_BIND_ADDRESS=${AWGPANEL_BIND_ADDRESS:-0.0.0.0}
 AWGPANEL_PORT=${AWGPANEL_PORT:-8080}
 AWGPANEL_SECURE_COOKIES=0

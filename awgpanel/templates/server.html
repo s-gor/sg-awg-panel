@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block section %}SERVER{% endblock %}
+{% block heading %}AmneziaWG Server{% endblock %}
+{% block subtitle %}Endpoint, UDP-порт, сеть и параметры маскировки AWG 2.0{% endblock %}
+{% block content %}
+<section class="panel-card">
+  <div class="section-head"><div><h2>Основные параметры</h2><p class="muted">Одна кнопка создаёт резервную копию, проверяет конфигурацию и запускает или перезапускает сервер.</p></div>
+    <div class="actions">{% if awg.service_state == 'active' %}<form method="post" action="{{ url_for('service_action', action='stop') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Остановить</button></form>{% elif awg.configured %}<form method="post" action="{{ url_for('service_action', action='start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Запустить</button></form>{% endif %}</div>
+  </div>
+  {% if not awg.installed %}<div class="alert warning">AmneziaWG не установлен. Выполните <code>sudo bash /opt/sg-awg-panel/deploy/install-amneziawg.sh</code>.</div>{% endif %}
+  <form method="post" action="{{ url_for('server_save') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-grid">
+      <label>Публичный IP или домен<input name="endpoint_host" value="{{ awg.settings.endpoint_host or awg.public_ipv4_detected }}" placeholder="определится автоматически" required></label>
+      <label>UDP-порт<input type="number" min="1" max="65535" name="listen_port" value="{{ awg.settings.listen_port }}" required></label>
+      <label>Сеть клиентов<input name="server_network" value="{{ awg.settings.server_network }}" required></label>
+      <label>DNS клиентов<input name="dns_servers" value="{{ awg.settings.dns_servers }}" required></label>
+      <label>Внешний интерфейс<input name="external_interface" value="{{ awg.settings.external_interface or awg.external_interface_detected }}" placeholder="определится автоматически" required></label>
+      <label>MTU<input type="number" min="576" max="1500" name="mtu" value="{{ awg.settings.mtu }}" required></label>
+    </div>
+    <details class="details-box"><summary>Параметры маскировки AWG 2.0</summary><p class="muted">Рабочие значения уже заполнены. H1–H4 при первом запуске создаются автоматически и не пересекаются.</p>
+      <div class="form-grid compact">{% for name in ['jc','jmin','jmax','s1','s2','s3','s4'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>{% endfor %}{% for name in ['h1','h2','h3','h4'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}" placeholder="автоматически"></label>{% endfor %}{% for name in ['i1','i2','i3','i4','i5'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>{% endfor %}</div>
+    </details>
+    <div class="action-row"><button class="button primary large" type="submit">Сохранить и {{ 'перезапустить' if awg.service_state == 'active' else 'запустить' }}</button><span class="hint">Клиенты и ключи сохраняются.</span></div>
+  </form>
+</section>
+{% endblock %}

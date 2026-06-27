@@ -1,6 +1,6 @@
 # Чистая установка
 
-## 1. Требования
+## Требования
 
 - отдельный тестовый VPS или EC2;
 - Ubuntu 22.04 или 24.04;
@@ -9,30 +9,27 @@
 - TCP 22 и 8080 только со своего IP;
 - UDP 585 для клиентов.
 
-SG-AWG-Panel не устанавливает Xray и не изменяет SG-Panel.
-
-## 2. Установка
+## Установка
 
 ```bash
 sudo -i
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha3/install-from-github.sh -o /root/install-sg-awg-panel.sh
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha4/install-from-github.sh -o /root/install-sg-awg-panel.sh
 bash /root/install-sg-awg-panel.sh
 ```
 
-На новом Ubuntu фоновое обновление может временно удерживать `dpkg`. Alpha 3 сама ждёт освобождения блокировки до 15 минут. Lock-файлы вручную удалять не нужно.
+Установщик ждёт только реальные блокировки `apt/dpkg`. Постоянный процесс `unattended-upgrade-shutdown --wait-for-signal` не считается активным обновлением и больше не вызывает бесконечного ожидания.
 
-Установщик последовательно:
+Последовательность:
 
-1. проверяет Ubuntu до изменения системы;
-2. ждёт окончания фоновых обновлений;
-3. устанавливает headers, DKMS и пакет AmneziaWG;
-4. загружает kernel module `amneziawg`;
-5. включает IPv4 forwarding;
-6. создаёт `sg-awg-server.service`;
-7. устанавливает web-панель и `sg-awg-panel.service`;
-8. создаёт пароль администратора.
+1. проверка Ubuntu;
+2. установка headers, DKMS и AmneziaWG;
+3. загрузка kernel module;
+4. включение IPv4 forwarding;
+5. создание `sg-awg-server.service`;
+6. установка web-панели;
+7. создание пароля администратора.
 
-## 3. Проверка
+## Проверка до настройки Server
 
 ```bash
 systemctl is-active sg-awg-panel
@@ -42,7 +39,7 @@ command -v awg-quick
 lsmod | grep amneziawg
 ```
 
-До первой настройки ожидается:
+Ожидается:
 
 ```text
 active
@@ -51,12 +48,4 @@ inactive
 /usr/bin/awg-quick
 ```
 
-`sg-awg-server` станет `active` после кнопки **«Сохранить и запустить»**.
-
-## 4. Доступ
-
-```text
-http://PUBLIC_IP:8080
-```
-
-TCP 8080 не открывайте для всего интернета. В Alpha 3 HTTPS ещё не настраивается.
+AWG-служба станет `active` после сохранения Server.

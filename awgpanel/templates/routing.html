@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block section %}ROUTING{% endblock %}
+{% block heading %}Routing{% endblock %}
+{% block subtitle %}Изоляция клиентов и AllowedIPs в их конфигурациях{% endblock %}
+{% block content %}
+<section class="panel-card"><div class="section-head"><div><h2>Правила сервера</h2><p class="muted">Изоляция запрещает прямой обмен между клиентами внутри awg0, но не мешает выходу в интернет.</p></div></div><form method="post" action="{{ url_for('routing_save') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="toggle-row"><input type="checkbox" name="isolate_clients" value="1" {{ 'checked' if settings.isolate_clients else '' }}><span><strong>Изолировать клиентов друг от друга</strong><small>Рекомендуется для обычного VPN-сервера.</small></span></label><button class="button primary" type="submit">Сохранить и применить</button></form></section>
+<section class="panel-card"><div class="section-head"><div><h2>Маршруты клиентов</h2><p class="muted">После изменения скачайте новый .conf. Серверные ключи и туннель не перезапускаются.</p></div></div>
+{% for client in clients %}<form class="routing-row" method="post" action="{{ url_for('client_routing_save', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div><strong>{{ client.name }}</strong><small>{{ client.address }}</small></div><label>Режим<select name="mode" onchange="this.form.querySelector('[name=allowed_ips]').disabled=this.value==='all'"><option value="all" {{ 'selected' if client.allowed_ips == '0.0.0.0/0' else '' }}>Весь трафик</option><option value="custom" {{ 'selected' if client.allowed_ips != '0.0.0.0/0' else '' }}>Только указанные сети</option></select></label><label>AllowedIPs<input name="allowed_ips" value="{{ client.allowed_ips }}" {{ 'disabled' if client.allowed_ips == '0.0.0.0/0' else '' }}></label><button class="button" type="submit">Сохранить</button></form>{% else %}<p class="empty">Клиенты ещё не созданы.</p>{% endfor %}
+</section>
+{% endblock %}

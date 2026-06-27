@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block section %}SECURITY{% endblock %}
+{% block heading %}Безопасность{% endblock %}
+{% block subtitle %}Пароль панели и параметры безопасного доступа{% endblock %}
+{% block content %}
+<section class="dashboard-grid"><article class="panel-card"><h2>Сменить пароль</h2><form method="post" action="{{ url_for('security_password') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Текущий пароль<input type="password" name="current_password" required autocomplete="current-password"></label><label>Новый пароль<input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label><label>Повторите новый пароль<input type="password" name="new_password_2" required minlength="8" autocomplete="new-password"></label><button class="button primary" type="submit">Изменить пароль</button></form></article><article class="panel-card"><h2>Текущий режим</h2><div class="key-values one-column"><div><span>Secure cookies</span><strong>{{ 'включены' if secure_cookies else 'выключены' }}</strong></div><div><span>Proxy headers</span><strong>{{ 'доверенные' if trust_proxy else 'не используются' }}</strong></div></div><div class="alert warning">Пока панель открыта по HTTP на порту 8080, ограничьте TCP 8080 своим IP в Security Group. HTTPS добавим отдельным этапом.</div></article></section>
+{% endblock %}

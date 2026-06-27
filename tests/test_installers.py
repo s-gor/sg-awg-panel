@@ -19,7 +19,7 @@ def test_first_install_validates_awg_before_web_panel():
     assert text.index("install-amneziawg.sh") < text.index("install-or-upgrade.sh")
 
 
-def test_installers_wait_for_apt_locks():
+def test_installers_wait_only_for_real_locks():
     for relative in (
         "install-from-github.sh",
         "install-or-upgrade.sh",
@@ -27,7 +27,16 @@ def test_installers_wait_for_apt_locks():
     ):
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert "wait_for_apt" in text
-        assert "unattended-upgr" in text
+        assert "fuser" in text
+        assert "unattended-upgr" not in text
+
+
+def test_light_updater_never_calls_apt():
+    text = (ROOT / "deploy" / "update-from-github.sh").read_text(encoding="utf-8")
+    assert "apt-get" not in text
+    assert "wait_for_apt" not in text
+    assert "rsync" in text
+    assert "init-db" in text
 
 
 def test_update_and_uninstall_scripts_exist():

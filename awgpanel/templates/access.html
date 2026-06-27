@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block section %}ACCESS{% endblock %}
+{% block heading %}Доступ{% endblock %}
+{% block subtitle %}Персональные HTTPS/HTTP-ссылки на актуальный .conf каждого клиента{% endblock %}
+{% block content %}
+<section class="panel-card info-card"><h2>Это не VLESS-подписка</h2><p>Ссылка всегда отдаёт текущий файл AmneziaWG. Её можно открыть в браузере и импортировать заново после изменения DNS или Routing. Автоматическое обновление зависит от клиентского приложения.</p></section>
+<section class="panel-card"><div class="table-wrap"><table><thead><tr><th>Клиент</th><th>Ссылка</th><th>Обращения</th><th>Последнее</th><th>Действия</th></tr></thead><tbody>
+{% for client in clients %}<tr class="{{ 'disabled' if not client.access_enabled else '' }}"><td><strong>{{ client.name }}</strong><br><span class="route-tag {{ 'direct' if client.access_enabled else 'blocked' }}">{{ 'включена' if client.access_enabled else 'отключена' }}</span></td><td><div class="copy-row"><input id="access-{{ client.id }}" value="{{ client.access_url }}" readonly><button class="button small" type="button" onclick="navigator.clipboard.writeText(document.getElementById('access-{{ client.id }}').value)">Копировать</button></div></td><td>{{ client.access_downloads }}</td><td>{{ client.access_last_at or '—' }}</td><td><div class="row-actions"><form method="post" action="{{ url_for('access_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if client.access_enabled else 'Включить' }}</button></form><form method="post" action="{{ url_for('access_regenerate', client_id=client.id) }}" onsubmit="return confirm('Старая ссылка перестанет работать. Продолжить?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Новый токен</button></form></div></td></tr>{% else %}<tr><td colspan="5" class="empty">Сначала создайте клиента.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

@@ -6,6 +6,7 @@ awgpanel/cli.py
 awgpanel/core.py
 awgpanel/db.py
 awgpanel/errors.py
+awgpanel/server_profiles.py
 awgpanel/web.py
 awgpanel/static/app.css
 awgpanel/templates/access.html
@@ -31,4 +32,5 @@ sg_awg_panel.egg-info/requires.txt
 sg_awg_panel.egg-info/top_level.txt
 tests/test_core.py
 tests/test_installers.py
+tests/test_server_profiles.py
 tests/test_web.py

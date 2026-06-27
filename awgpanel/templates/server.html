@@ -1,37 +1,239 @@
 {% extends "base.html" %}
 {% block section %}SERVER{% endblock %}
 {% block heading %}AmneziaWG Server{% endblock %}
-{% block subtitle %}Endpoint, UDP-порт, сеть и параметры маскировки AWG 2.0{% endblock %}
+{% block subtitle %}Endpoint, UDP-порт, сеть, DNS, MTU и профили маскировки AWG 2.0{% endblock %}
+
 {% block content %}
 <section class="panel-card">
   <div class="section-head">
-    <div><h2>Основные параметры</h2><p class="muted">Сохранение создаёт резервную копию, проверяет конфигурацию и запускает или перезапускает сервер.</p></div>
-    <div class="actions">{% if awg.service_state == 'active' %}<form method="post" action="{{ url_for('service_action', action='stop') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Остановить</button></form>{% elif awg.configured %}<form method="post" action="{{ url_for('service_action', action='start') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Запустить</button></form>{% endif %}</div>
+    <div>
+      <h2>Основные параметры</h2>
+      <p class="muted">Сохранение создаёт резервную копию, проверяет конфигурацию и запускает или перезапускает сервер. При ошибке возвращается предыдущее рабочее состояние.</p>
+    </div>
+    <div class="actions">
+      {% if awg.service_state == 'active' %}
+      <form method="post" action="{{ url_for('service_action', action='stop') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button danger" type="submit">Остановить</button>
+      </form>
+      {% elif awg.configured %}
+      <form method="post" action="{{ url_for('service_action', action='start') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button" type="submit">Запустить</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
-  {% if not awg.installed %}<div class="alert warning">AmneziaWG не установлен. Выполните <code>sudo bash /opt/sg-awg-panel/deploy/install-amneziawg.sh</code>.</div>{% endif %}
+
+  {% if not awg.installed %}
+  <div class="alert warning">AmneziaWG не установлен. Выполните <code>sudo bash /opt/sg-awg-panel/deploy/install-amneziawg.sh</code>.</div>
+  {% endif %}
+
   <form method="post" action="{{ url_for('server_save') }}" id="server-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
     <div class="form-grid">
       <label>Публичный IP или домен
-        <div class="field-with-action"><input name="endpoint_host" value="{{ awg.settings.endpoint_host or awg.public_ipv4_detected }}" placeholder="определится автоматически" required><button class="button small" type="button" onclick="this.previousElementSibling.value='{{ awg.public_ipv4_detected }}'">Определить</button></div>
+        <div class="field-with-action">
+          <input name="endpoint_host" value="{{ awg.settings.endpoint_host or awg.public_ipv4_detected }}" placeholder="определится автоматически" required>
+          <button class="button small" type="button" onclick="setDetected('endpoint_host', {{ (awg.public_ipv4_detected or '')|tojson }})">Определить</button>
+        </div>
       </label>
-      <label>UDP-порт<input type="number" min="1" max="65535" name="listen_port" value="{{ awg.settings.listen_port }}" required></label>
-      <label>Сеть клиентов<input name="server_network" value="{{ awg.settings.server_network }}" required></label>
-      <label>DNS клиентов<input name="dns_servers" value="{{ awg.settings.dns_servers }}" required></label>
+
+      <label>UDP-порт
+        <input type="number" min="1" max="65535" name="listen_port" value="{{ awg.settings.listen_port }}" required>
+        <span class="hint">При смене откройте этот UDP-порт в firewall или AWS Security Group.</span>
+      </label>
+
+      <label>Сеть клиентов
+        <input name="server_network" value="{{ awg.settings.server_network }}" required>
+        <span class="hint">Частная IPv4-сеть от /16 до /30.</span>
+      </label>
+
+      <label>DNS клиентов
+        <input name="dns_servers" value="{{ awg.settings.dns_servers }}" required>
+      </label>
+
       <label>Внешний интерфейс
-        <div class="field-with-action"><input name="external_interface" value="{{ awg.settings.external_interface or awg.external_interface_detected }}" placeholder="определится автоматически" required><button class="button small" type="button" onclick="this.previousElementSibling.value='{{ awg.external_interface_detected }}'">Определить</button></div>
+        <div class="field-with-action">
+          <input name="external_interface" value="{{ awg.settings.external_interface or awg.external_interface_detected }}" placeholder="определится автоматически" required>
+          <button class="button small" type="button" onclick="setDetected('external_interface', {{ (awg.external_interface_detected or '')|tojson }})">Определить</button>
+        </div>
       </label>
-      <label>MTU<input type="number" min="576" max="1500" name="mtu" value="{{ awg.settings.mtu }}" required></label>
+
+      <label>MTU
+        <input type="number" min="576" max="1500" name="mtu" value="{{ awg.settings.mtu }}" required>
+      </label>
     </div>
-    <details class="details-box"><summary>Параметры маскировки AWG 2.0</summary>
-      <div class="details-toolbar"><p class="muted">Используйте уже проверенные значения. H1–H4 можно безопасно пересоздать без изменения ключей.</p><div class="actions"><button class="button small" type="button" onclick="applyTestedPreset()">Проверенный профиль</button><button class="button small" type="button" onclick="regenerateHeaders()">Новые H1–H4</button></div></div>
-      <div class="form-grid compact">{% for name in ['jc','jmin','jmax','s1','s2','s3','s4'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>{% endfor %}{% for name in ['h1','h2','h3','h4'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}" placeholder="автоматически"></label>{% endfor %}{% for name in ['i1','i2','i3','i4','i5'] %}<label>{{ name|upper }}<input name="{{ name }}" value="{{ awg.settings[name] }}"></label>{% endfor %}</div>
+
+    <div id="change-warning" class="alert warning" hidden>
+      <strong>После применения:</strong>
+      <ul id="change-list"></ul>
+    </div>
+
+    <div id="network-confirmation" class="alert danger" hidden>
+      <label class="checkbox-line">
+        <input type="checkbox" name="confirm_network_change" value="1">
+        Я понимаю, что адреса всех клиентов будут пересозданы в новой сети и старые конфигурации перестанут подключаться.
+      </label>
+    </div>
+
+    <details class="details-box" open>
+      <summary>Параметры маскировки AWG 2.0</summary>
+      <div class="details-toolbar">
+        <div>
+          <p class="muted">Профиль меняет только параметры маскировки. Ключи клиентов сохраняются, но после изменения нужно заново скачать клиентские конфигурации.</p>
+          <p class="muted">«Усиленный» увеличивает количество и диапазон размеров стартовых мусорных пакетов; он создаёт немного больше служебного трафика и не гарантирует лучшую совместимость в каждой сети.</p>
+        </div>
+        <div class="actions">
+          <label>Профиль
+            <select id="masking-profile" onchange="applyMaskingProfile(this.value)">
+              <option value="standard" {% if masking_profile == 'standard' %}selected{% endif %}>Стандартный</option>
+              <option value="enhanced" {% if masking_profile == 'enhanced' %}selected{% endif %}>Усиленный</option>
+              <option value="custom" {% if masking_profile == 'custom' %}selected{% endif %}>Пользовательский</option>
+            </select>
+          </label>
+          <button class="button small" type="button" onclick="regenerateHeaders()">Пересоздать H1–H4</button>
+        </div>
+      </div>
+
+      <div class="form-grid compact">
+        {% for name in ['jc','jmin','jmax','s1','s2','s3','s4'] %}
+        <label>{{ name|upper }}<input class="masking-field" name="{{ name }}" value="{{ awg.settings[name] }}"></label>
+        {% endfor %}
+        {% for name in ['h1','h2','h3','h4'] %}
+        <label>{{ name|upper }}<input class="masking-field" name="{{ name }}" value="{{ awg.settings[name] }}" placeholder="автоматически"></label>
+        {% endfor %}
+        {% for name in ['i1','i2','i3','i4','i5'] %}
+        <label>{{ name|upper }}<input class="masking-field" name="{{ name }}" value="{{ awg.settings[name] }}"></label>
+        {% endfor %}
+      </div>
     </details>
-    <div class="action-row"><button class="button primary" type="submit">Сохранить и {{ 'перезапустить' if awg.service_state == 'active' else 'запустить' }}</button><span class="hint">Клиенты и ключи сохраняются.</span></div>
+
+    <div class="action-row">
+      <button class="button primary" type="submit">Сохранить и {{ 'перезапустить' if awg.service_state == 'active' else 'запустить' }}</button>
+      <span class="hint">Перед каждым изменением создаётся резервная копия.</span>
+    </div>
   </form>
 </section>
+
+<section class="panel-card">
+  <div class="section-head">
+    <div>
+      <h2>Проверка сервера</h2>
+      <p class="muted">Краткая проверка UDP, NAT и автозапуска. Подробности находятся в Diagnostics.</p>
+    </div>
+    <a class="button small" href="{{ url_for('diagnostics') }}">Открыть Diagnostics</a>
+  </div>
+  <div class="form-grid compact">
+    <div><span class="muted">AWG-служба</span><br><strong>{{ diagnostics.service_state }}</strong></div>
+    <div><span class="muted">Автозапуск AWG</span><br><strong>{{ 'включён' if diagnostics.awg_enabled else 'выключен' }}</strong></div>
+    <div><span class="muted">Интерфейс awg0</span><br><strong>{{ 'есть' if diagnostics.interface_present else 'нет' }}</strong></div>
+    <div><span class="muted">UDP listener</span><br><strong>{{ 'найден' if diagnostics.udp.lines else 'не найден' }}</strong></div>
+    <div><span class="muted">IPv4 forwarding</span><br><strong>{{ 'включён' if diagnostics.ip_forward else 'выключен' }}</strong></div>
+    <div><span class="muted">NAT MASQUERADE</span><br><strong>{{ 'установлен' if diagnostics.nat_rule else 'не найден' }}</strong></div>
+    <div><span class="muted">Внешний интерфейс</span><br><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div>
+    <div><span class="muted">Конфигурация</span><br><strong>{{ 'есть' if diagnostics.config_exists else 'нет' }}</strong></div>
+  </div>
+  {% if diagnostics.udp.lines %}<pre>{{ diagnostics.udp.lines|join('\n') }}</pre>{% endif %}
+</section>
+
 <script>
-function applyTestedPreset(){const f=document.getElementById('server-form');Object.entries({jc:6,jmin:64,jmax:128,s1:48,s2:48,s3:32,s4:16}).forEach(([k,v])=>f.elements[k].value=v);}
-function regenerateHeaders(){const f=document.getElementById('server-form');const segments=[[100000000,850000000],[950000000,1700000000],[1800000000,2650000000],[2750000000,3900000000]];segments.forEach((seg,i)=>{const width=2000000+crypto.getRandomValues(new Uint32Array(1))[0]%8000001;const span=seg[1]-seg[0]-width;const start=seg[0]+(crypto.getRandomValues(new Uint32Array(1))[0]%Math.max(1,span));f.elements['h'+(i+1)].value=start+'-'+(start+width);});}
+const form = document.getElementById('server-form');
+const maskingProfiles = {{ masking_profiles|tojson }};
+const initial = {
+  endpoint_host: {{ (awg.settings.endpoint_host or awg.public_ipv4_detected or '')|tojson }},
+  listen_port: {{ awg.settings.listen_port|string|tojson }},
+  server_network: {{ awg.settings.server_network|tojson }},
+  dns_servers: {{ awg.settings.dns_servers|tojson }},
+  mtu: {{ awg.settings.mtu|string|tojson }},
+  external_interface: {{ (awg.settings.external_interface or awg.external_interface_detected or '')|tojson }},
+  {% for name in ['jc','jmin','jmax','s1','s2','s3','s4','h1','h2','h3','h4','i1','i2','i3','i4','i5'] %}
+  {{ name }}: {{ awg.settings[name]|string|tojson }}{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+const maskingNames = ['jc','jmin','jmax','s1','s2','s3','s4','h1','h2','h3','h4','i1','i2','i3','i4','i5'];
+
+function valueOf(name) {
+  const element = form.elements[name];
+  return element ? String(element.value).trim() : '';
+}
+
+function setDetected(name, value) {
+  if (value) form.elements[name].value = value;
+  updateChangeSummary();
+}
+
+function applyMaskingProfile(name) {
+  if (name === 'custom') return;
+  const values = maskingProfiles[name];
+  Object.entries(values).forEach(([key, value]) => form.elements[key].value = value);
+  updateChangeSummary();
+}
+
+function regenerateHeaders() {
+  const segments = [[100000000,850000000],[950000000,1700000000],[1800000000,2650000000],[2750000000,3900000000]];
+  const values = new Uint32Array(8);
+  crypto.getRandomValues(values);
+  segments.forEach((segment, index) => {
+    const width = 2000000 + values[index * 2] % 8000001;
+    const span = Math.max(1, segment[1] - segment[0] - width);
+    const start = segment[0] + values[index * 2 + 1] % span;
+    form.elements['h' + (index + 1)].value = start + '-' + (start + width);
+  });
+  document.getElementById('masking-profile').value = 'custom';
+  updateChangeSummary();
+}
+
+function detectProfileFromFields() {
+  const hasSignatures = ['i1','i2','i3','i4','i5'].some(name => valueOf(name));
+  if (hasSignatures) return 'custom';
+  for (const [name, values] of Object.entries(maskingProfiles)) {
+    if (Object.entries(values).every(([key, value]) => valueOf(key) === String(value))) return name;
+  }
+  return 'custom';
+}
+
+function updateChangeSummary() {
+  const changes = [];
+  const networkChanged = valueOf('server_network') !== initial.server_network;
+  const endpointChanged = valueOf('endpoint_host') !== initial.endpoint_host;
+  const portChanged = valueOf('listen_port') !== initial.listen_port;
+  const dnsChanged = valueOf('dns_servers') !== initial.dns_servers;
+  const mtuChanged = valueOf('mtu') !== initial.mtu;
+  const maskingChanged = maskingNames.some(name => valueOf(name) !== initial[name]);
+  const interfaceChanged = valueOf('external_interface') !== initial.external_interface;
+
+  if (portChanged) changes.push('Новый UDP-порт должен быть открыт в firewall или AWS Security Group.');
+  if (networkChanged) changes.push('Все клиенты получат новые адреса в выбранной сети.');
+  if (endpointChanged || portChanged || networkChanged || dnsChanged || mtuChanged || maskingChanged) {
+    changes.push('Скачайте новые .conf или QR для всех клиентов после применения.');
+  }
+  if (maskingChanged) changes.push('Параметры маскировки на сервере и клиентах должны совпадать.');
+  if (interfaceChanged) changes.push('Правило NAT будет перестроено для нового внешнего интерфейса.');
+
+  const warning = document.getElementById('change-warning');
+  const list = document.getElementById('change-list');
+  list.replaceChildren(...changes.map(text => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  warning.hidden = changes.length === 0;
+  document.getElementById('network-confirmation').hidden = !networkChanged;
+  if (!networkChanged) form.elements.confirm_network_change.checked = false;
+  document.getElementById('masking-profile').value = detectProfileFromFields();
+}
+
+form.addEventListener('input', updateChangeSummary);
+form.addEventListener('change', updateChangeSummary);
+form.addEventListener('submit', event => {
+  const networkChanged = valueOf('server_network') !== initial.server_network;
+  if (networkChanged && !form.elements.confirm_network_change.checked) {
+    event.preventDefault();
+    alert('Подтвердите изменение сети клиентов.');
+  }
+});
+updateChangeSummary();
 </script>
 {% endblock %}

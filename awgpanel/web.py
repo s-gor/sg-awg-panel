@@ -76,6 +76,12 @@ from .core import (
 )
 from .db import init_db
 from .errors import AWGPanelError
+from .server_profiles import (
+    MASKING_PROFILES,
+    detect_masking_profile,
+    ensure_udp_port_available,
+    server_change_summary,
+)
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -253,39 +259,58 @@ def create_app() -> Flask:
     @app.get("/server")
     @login_required
     def server_page():
-        return render_template("server.html", awg=get_awg_overview())
+        awg = get_awg_overview()
+        return render_template(
+            "server.html",
+            awg=awg,
+            diagnostics=get_awg_diagnostics(),
+            masking_profiles=MASKING_PROFILES,
+            masking_profile=detect_masking_profile(awg["settings"]),
+        )
 
     @app.post("/server")
     @login_required
     def server_save():
         require_csrf()
         try:
-            _, state = configure_and_start_awg(
-                interface_name="awg0",
-                endpoint_host=request.form.get("endpoint_host", ""),
-                listen_port=request.form.get("listen_port", "585"),
-                server_network=request.form.get("server_network", "10.77.0.0/24"),
-                dns_servers=request.form.get("dns_servers", "1.1.1.1, 1.0.0.1"),
-                mtu=request.form.get("mtu", "1280"),
-                external_interface=request.form.get("external_interface", ""),
-                jc=request.form.get("jc", "6"),
-                jmin=request.form.get("jmin", "64"),
-                jmax=request.form.get("jmax", "128"),
-                s1=request.form.get("s1", "48"),
-                s2=request.form.get("s2", "48"),
-                s3=request.form.get("s3", "32"),
-                s4=request.form.get("s4", "16"),
-                h1=request.form.get("h1", ""),
-                h2=request.form.get("h2", ""),
-                h3=request.form.get("h3", ""),
-                h4=request.form.get("h4", ""),
-                i1=request.form.get("i1", ""),
-                i2=request.form.get("i2", ""),
-                i3=request.form.get("i3", ""),
-                i4=request.form.get("i4", ""),
-                i5=request.form.get("i5", ""),
-            )
-            flash(f"Настройки сохранены и применены. AmneziaWG: {state}.", "success")
+            overview = get_awg_overview()
+            current = overview.get("settings") or get_awg_settings()
+            submitted = {
+                "interface_name": "awg0",
+                "endpoint_host": request.form.get("endpoint_host", ""),
+                "listen_port": request.form.get("listen_port", "585"),
+                "server_network": request.form.get("server_network", "10.77.0.0/24"),
+                "dns_servers": request.form.get("dns_servers", "1.1.1.1, 1.0.0.1"),
+                "mtu": request.form.get("mtu", "1280"),
+                "external_interface": request.form.get("external_interface", ""),
+                "jc": request.form.get("jc", "6"),
+                "jmin": request.form.get("jmin", "64"),
+                "jmax": request.form.get("jmax", "128"),
+                "s1": request.form.get("s1", "48"),
+                "s2": request.form.get("s2", "48"),
+                "s3": request.form.get("s3", "32"),
+                "s4": request.form.get("s4", "16"),
+                **{f"h{i}": request.form.get(f"h{i}", "") for i in range(1, 5)},
+                **{f"i{i}": request.form.get(f"i{i}", "") for i in range(1, 6)},
+            }
+            changes = server_change_summary(current, submitted)
+            if changes["network_changed"] and request.form.get("confirm_network_change") != "1":
+                raise ValueError(
+                    "Подтвердите изменение сети клиентов. Все клиентские адреса "
+                    "будут пересозданы, а старые конфигурации перестанут работать."
+                )
+
+            configured = bool(overview.get("configured", False))
+            current_port = int(current["listen_port"]) if configured else None
+            ensure_udp_port_available(int(submitted["listen_port"]), current_port)
+
+            _, state = configure_and_start_awg(**submitted)
+            message = f"Настройки проверены, сохранены и применены. AmneziaWG: {state}."
+            if changes["client_configs_changed"]:
+                message += " Скачайте новые .conf или QR для клиентов."
+            if changes["network_changed"]:
+                message += " Адреса клиентов перенесены в новую сеть."
+            flash(message, "success")
         except (ValueError, PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("server_page"))

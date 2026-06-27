@@ -192,7 +192,7 @@ def _validate_settings(values: dict[str, object]) -> dict[str, object]:
     except ValueError as exc:
         raise ValueError("Сеть клиентов должна быть IPv4 CIDR, например 10.77.0.0/24") from exc
     if network.version != 4 or network.prefixlen < 16 or network.prefixlen > 30:
-        raise ValueError("Для Alpha 1 используйте частную IPv4-сеть от /16 до /30")
+        raise ValueError("Используйте частную IPv4-сеть от /16 до /30")
     if not network.is_private:
         raise ValueError("Сеть клиентов должна быть частной IPv4-сетью")
     dns_servers = _validate_dns_servers(values.get("dns_servers", "1.1.1.1, 1.0.0.1"))
@@ -564,6 +564,80 @@ def _write_server_config() -> Path:
     return AWG_CONFIG_PATH
 
 
+
+def _prevalidate_awg_request(values: dict[str, object]) -> None:
+    """Validate a server request before creating a backup or touching SQLite.
+
+    Validation errors must not invoke database restore. This also keeps the
+    Windows test path safe because an invalid form never replaces an open DB.
+    """
+    candidate = dict(values)
+    current = get_awg_settings()
+
+    if not candidate.get("endpoint_host"):
+        candidate["endpoint_host"] = detect_public_ipv4()
+    if not candidate.get("external_interface"):
+        candidate["external_interface"] = detect_external_interface()
+
+    if current["configured"]:
+        for key in ("h1", "h2", "h3", "h4"):
+            if not str(candidate.get(key, "")).strip():
+                candidate[key] = current[key]
+    else:
+        h1, h2, h3, h4 = _random_header_ranges()
+        generated = {"h1": h1, "h2": h2, "h3": h3, "h4": h4}
+        for key, value in generated.items():
+            if not str(candidate.get(key, "")).strip():
+                candidate[key] = value
+
+    for key, default in {
+        "interface_name": "awg0", "listen_port": 585,
+        "server_network": "10.77.0.0/24", "dns_servers": "1.1.1.1, 1.0.0.1",
+        "mtu": 1280, "jc": 6, "jmin": 64, "jmax": 128,
+        "s1": 48, "s2": 48, "s3": 32, "s4": 16,
+        "isolate_clients": 1,
+        "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
+    }.items():
+        candidate.setdefault(key, current[key] if current["configured"] else default)
+
+    _validate_settings(candidate)
+
+
+def _readdress_clients_for_network(
+    con: sqlite3.Connection, old_network_value: str, network_value: str
+) -> None:
+    """Move every client address into a newly selected server network."""
+    network = ipaddress.ip_network(network_value, strict=True)
+    clients = con.execute(
+        "SELECT id, allowed_ips FROM awg_clients ORDER BY id"
+    ).fetchall()
+    hosts = list(network.hosts())
+    capacity = max(0, len(hosts) - 1)
+    if len(clients) > capacity:
+        raise AWGPanelError(
+            f"Сеть {network} вмещает только {capacity} клиентов, "
+            f"а сейчас создано {len(clients)}. Выберите более крупную сеть."
+        )
+
+    for row in clients:
+        con.execute(
+            "UPDATE awg_clients SET address=? WHERE id=?",
+            (f"__network_migration__{int(row['id'])}", int(row["id"])),
+        )
+
+    for row, host in zip(clients, hosts[1:]):
+        allowed_ips = str(row["allowed_ips"])
+        if allowed_ips.strip() == old_network_value.strip():
+            allowed_ips = str(network)
+        con.execute(
+            """
+            UPDATE awg_clients
+            SET address=?, allowed_ips=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (f"{host}/{network.prefixlen}", allowed_ips, int(row["id"])),
+        )
+
 def _configure_awg_impl(**values):
     current = get_awg_settings()
     if not values.get("endpoint_host"):
@@ -595,6 +669,13 @@ def _configure_awg_impl(**values):
     if not private_key or not public_key:
         private_key, public_key = _keypair()
     with connect() as con:
+        if (
+            current["configured"]
+            and str(current["server_network"]) != validated["server_network"]
+        ):
+            _readdress_clients_for_network(
+                con, str(current["server_network"]), validated["server_network"]
+            )
         con.execute(
             """
             UPDATE awg_settings SET configured=1, interface_name=?, endpoint_host=?,
@@ -621,6 +702,7 @@ def _configure_awg_impl(**values):
 
 def configure_awg(**values):
     _require_root()
+    _prevalidate_awg_request(values)
     backup = _backup_state("server-settings")
     try:
         return _configure_awg_impl(**values)
@@ -631,6 +713,7 @@ def configure_awg(**values):
 
 def configure_and_start_awg(**values) -> tuple[object, str]:
     _require_root()
+    _prevalidate_awg_request(values)
     backup = _backup_state("server-apply")
     previous_state = awg_service_state()
     try:

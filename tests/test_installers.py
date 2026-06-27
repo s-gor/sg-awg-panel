@@ -105,3 +105,20 @@ def test_quoted_python_heredocs_compile():
             if marker.startswith("PY"):
                 compile("\n".join(body) + "\n", f"{script}:{marker}", "exec")
             index += 1
+
+
+def test_https_uses_placeholder_on_443_and_separate_panel_port():
+    text = (ROOT / "deploy" / "configure-panel-access.sh").read_text(encoding="utf-8")
+    assert "listen 443 ssl" in text
+    assert "listen ${PUBLIC_PORT} ssl" in text
+    assert "register-unsafely-without-email" in text
+    assert "--email" not in text
+    assert "rm -f /etc/nginx/sites-enabled/default" not in text
+    assert "sg-awg-placeholder.conf" in text
+    assert "sg-awg-panel.conf" in text
+
+
+def test_panel_port_validation_reserves_443():
+    text = (ROOT / "deploy" / "configure-panel-access.sh").read_text(encoding="utf-8")
+    assert "22|80|443|585|18080" in text
+    assert "62443" in text

@@ -14,7 +14,7 @@
 - TCP 8080 — только ваш IP;
 - UDP 585 — клиенты AWG.
 
-Для HTTPS позже откройте TCP 80 и выбранный HTTPS-порт.
+Для HTTPS позже откройте TCP 80, TCP 443 для заглушки и выбранный отдельный HTTPS-порт панели. Рекомендуемый порт SG-AWG-Panel — 62443.
 
 ## Установка
 
@@ -24,7 +24,7 @@ set -Eeuo pipefail
 tmp="$(mktemp /tmp/sg-awg-install.XXXXXX.sh)"
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL \
-  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha7/install-from-github.sh \
+  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha8/install-from-github.sh \
   -o "$tmp"
 sudo bash "$tmp"
 BASH
@@ -37,7 +37,7 @@ BASH
 3. устанавливает AmneziaWG и kernel module;
 4. создаёт Python virtualenv и SQLite;
 5. привязывает backend к `127.0.0.1:18080`;
-6. устанавливает Nginx на публичный TCP 8080;
+6. устанавливает Nginx на первоначальный публичный TCP 8080;
 7. включает backup timer и recovery service;
 8. не запускает AWG до создания `awg0.conf`.
 

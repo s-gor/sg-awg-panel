@@ -70,7 +70,7 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "get_awg_settings", settings)
     monkeypatch.setattr(web, "list_awg_clients", lambda: [])
     monkeypatch.setattr(web, "list_backups", lambda limit=10: [])
-    monkeypatch.setattr(web, "check_for_updates", lambda force=False: {"current":"v0.1.0-alpha7","latest":"v0.1.0-alpha7","available":False,"checked_at":"now","error":""})
+    monkeypatch.setattr(web, "check_for_updates", lambda force=False: {"current":"v0.1.0-alpha8","latest":"v0.1.0-alpha8","available":False,"checked_at":"now","error":""})
     monkeypatch.setattr(web, "get_update_status", lambda: {"state":"idle","log":""})
     app = web.create_app()
     app.config.update(TESTING=True)
@@ -209,3 +209,15 @@ def test_client_edit_page_and_save(tmp_path, monkeypatch):
     assert response.status_code == 302
     assert recorded[0][0] == 3
     assert recorded[0][1]["dns_servers"] == "9.9.9.9"
+
+
+def test_settings_uses_separate_https_port_and_no_email(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    login(client)
+    response = client.get("/settings")
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "62443" in text
+    assert "Порты 80 и 443 панель не занимает" in text
+    assert "manage_placeholder" in text
+    assert "E-mail Let's Encrypt" not in text

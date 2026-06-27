@@ -4,7 +4,7 @@
 
 Проект не использует Xray и не является модулем SG-Panel. Он управляет собственным AWG-сервером: интерфейсом `awg0`, клиентами, ключами, Routing, DNS, доступом к конфигам, резервными копиями, безопасностью и диагностикой.
 
-Текущая версия: **v0.1.0-alpha7**.
+Текущая версия: **v0.1.0-alpha8**.
 
 ## Что уже работает
 
@@ -62,7 +62,8 @@ SG-AWG-Panel backend
 - TCP `22` — только со своего IP;
 - TCP `8080` — первоначальный порт панели, только со своего IP;
 - UDP `585` — для AWG-клиентов;
-- для HTTPS дополнительно TCP `80` и выбранный HTTPS-порт.
+- для HTTPS: TCP `80` для Let’s Encrypt, TCP `443` для обычной заглушки и выбранный отдельный TCP-порт панели;
+- рекомендуемый порт SG-AWG-Panel — `62443`.
 
 ## Чистая установка
 
@@ -74,7 +75,7 @@ set -Eeuo pipefail
 tmp="$(mktemp /tmp/sg-awg-install.XXXXXX.sh)"
 trap 'rm -f "$tmp"' EXIT
 curl -fsSL \
-  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha7/install-from-github.sh \
+  https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-alpha8/install-from-github.sh \
   -o "$tmp"
 sudo bash "$tmp"
 BASH
@@ -104,12 +105,24 @@ Nginx принимает внешний запрос, а backend панели у
 
 Откройте **Settings → Публичный доступ** и укажите:
 
-- HTTP или HTTPS;
+- режим HTTPS;
 - домен;
-- публичный порт;
-- e-mail Let’s Encrypt для HTTPS.
+- отдельный публичный TCP-порт панели, рекомендуется `62443`;
+- должна ли SG-AWG-Panel сама управлять заглушкой на `443`.
 
-Перед выпуском сертификата домен должен указывать на сервер, а TCP `80` должен быть открыт. После перехода на HTTPS старый публичный порт можно закрыть в cloud firewall.
+Схема по умолчанию:
+
+```text
+TCP 80      ACME-проверка Let’s Encrypt и HTTP-заглушка
+TCP 443     обычная HTTPS-заглушка
+TCP 62443   HTTPS SG-AWG-Panel
+TCP 18080   backend только на 127.0.0.1
+UDP 585     AmneziaWG
+```
+
+Панель никогда не публикуется на TCP `443`. Один сертификат домена используется и для заглушки на `443`, и для выбранного HTTPS-порта панели. E-mail для выпуска сертификата не требуется.
+
+Если другой Nginx-проект уже обслуживает этот домен на `443` и сертификат уже существует, отключите управление заглушкой. SG-AWG-Panel создаст только собственный конфиг панели на выбранном порту и не будет удалять чужие Nginx-конфигурации.
 
 ## Безопасность
 
@@ -141,7 +154,7 @@ Nginx принимает внешний запрос, а backend панели у
 Ручной вариант:
 
 ```bash
-sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha7 \
+sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha8 \
   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
 
@@ -174,7 +187,7 @@ ip -br addr show awg0
 - [HTTPS, домен и порт](docs/HTTPS.md)
 - [Удаление](docs/UNINSTALL.md)
 
-## Ограничения Alpha 7
+## Ограничения Alpha 8
 
 - только IPv4;
 - один интерфейс `awg0`;

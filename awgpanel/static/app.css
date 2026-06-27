@@ -277,6 +277,10 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border: 1px
   .actions form, .actions .button, .action-row .button { width: 100%; }
 }
 
-/* Alpha 7 administration tables */
+/* Alpha 8 administration tables */
 .truncate-cell { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inline-note { margin: -3px 0 14px; color: var(--muted); font-size: 12px; }
+.field-note { margin: -5px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.checkbox-row { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0 6px; color: var(--text); font-weight: 700; }
+.checkbox-row input { width: 17px; height: 17px; margin-top: 2px; accent-color: var(--accent); }
+.checkbox-row span { line-height: 1.45; }

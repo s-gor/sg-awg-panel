@@ -692,8 +692,8 @@ def create_app() -> Flask:
             panel = configure_panel_access(
                 scheme=request.form.get("public_scheme", "http"),
                 public_host=request.form.get("public_host", ""),
-                public_port=request.form.get("public_port", "8080"),
-                https_email=request.form.get("https_email", ""),
+                public_port=request.form.get("public_port", "62443"),
+                manage_placeholder=request.form.get("manage_placeholder", "0"),
             )
             record_auth_event(
                 "panel_access_changed", ip_address=client_ip(),

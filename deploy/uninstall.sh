@@ -21,8 +21,14 @@ rm -f /etc/systemd/system/sg-awg-panel.service /etc/systemd/system/sg-awg-server
   /etc/systemd/system/sg-awg-backup.service /etc/systemd/system/sg-awg-backup.timer \
   /etc/systemd/system/sg-awg-recovery.service
 rm -f /etc/sysctl.d/90-sg-awg-panel.conf
-rm -f /etc/nginx/sites-enabled/sg-awg-panel /etc/nginx/sites-available/sg-awg-panel
-rm -rf /var/www/sg-awg-panel-acme
+rm -f \
+  /etc/nginx/sites-enabled/sg-awg-panel \
+  /etc/nginx/sites-available/sg-awg-panel \
+  /etc/nginx/sites-enabled/sg-awg-panel.conf \
+  /etc/nginx/sites-available/sg-awg-panel.conf \
+  /etc/nginx/sites-enabled/sg-awg-placeholder.conf \
+  /etc/nginx/sites-available/sg-awg-placeholder.conf
+rm -rf /var/www/sg-awg-panel-acme /var/www/sg-awg-acme /var/www/sg-awg-placeholder
 nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
 rm -rf /opt/sg-awg-panel /etc/sg-awg-panel /var/lib/sg-awg-panel /etc/amnezia/amneziawg
 systemctl daemon-reload

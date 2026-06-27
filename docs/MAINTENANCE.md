@@ -40,7 +40,7 @@ systemctl list-timers sg-awg-backup.timer
 - каталог проекта;
 - SQLite-база;
 - `web.env`;
-- конфигурация Nginx;
+- отдельные конфигурации Nginx панели и заглушки;
 - systemd units панели, backup timer и recovery.
 
 После установки выполняются:
@@ -67,7 +67,7 @@ systemctl list-timers sg-awg-backup.timer
 ## Ручное обновление
 
 ```bash
-sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha7 \
+sudo env SG_AWG_PANEL_VERSION=v0.1.0-alpha8 \
   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
 

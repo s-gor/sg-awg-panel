@@ -1340,15 +1340,6 @@ def _normalize_domain(value: object, *, allow_empty: bool = True) -> str:
     return ascii_name
 
 
-def _normalize_email(value: object, *, required: bool = False) -> str:
-    raw = str(value or "").strip()
-    if not raw and not required:
-        return ""
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", raw):
-        raise ValueError("Укажите корректный e-mail для Let's Encrypt")
-    return raw
-
-
 def _normalize_port(value: object, field: str = "Порт") -> int:
     try:
         port = int(str(value).strip())
@@ -1394,17 +1385,29 @@ def panel_public_url(settings=None) -> str:
 
 
 def configure_panel_access(
-    *, scheme: str, public_host: str, public_port: object, https_email: str = ""
+    *,
+    scheme: str,
+    public_host: str,
+    public_port: object,
+    manage_placeholder: object = True,
 ):
     _require_root()
     scheme = str(scheme).strip().lower()
     if scheme not in {"http", "https"}:
         raise ValueError("Режим панели должен быть HTTP или HTTPS")
     port = _normalize_port(public_port, "Публичный порт панели")
+    if port in {22, 80, 443, 585, 18080}:
+        raise ValueError(
+            f"Порт {port} зарезервирован. Рекомендуемый порт SG-AWG-Panel: 62443"
+        )
+    if port < 1024:
+        raise ValueError("Публичный порт панели должен быть в диапазоне 1024–65535")
     host = _normalize_domain(public_host, allow_empty=scheme == "http")
-    email = _normalize_email(https_email, required=scheme == "https")
     if scheme == "https" and not host:
         raise ValueError("Для HTTPS требуется домен")
+    placeholder = str(manage_placeholder).strip().lower() in {
+        "1", "true", "yes", "on", "enabled"
+    }
 
     script = PANEL_PROJECT_DIR / "deploy" / "configure-panel-access.sh"
     if not script.exists():
@@ -1416,11 +1419,11 @@ def configure_panel_access(
         scheme,
         "--port",
         str(port),
+        "--manage-placeholder",
+        "1" if placeholder else "0",
     ]
     if host:
         args += ["--domain", host]
-    if email:
-        args += ["--email", email]
     unit = f"sg-awg-panel-access-{uuid.uuid4().hex[:8]}"
     result = _run(
         ["systemd-run", "--wait", "--pipe", "--collect", f"--unit={unit}", *args],
@@ -1428,18 +1431,21 @@ def configure_panel_access(
     )
     if result.returncode != 0:
         raise AWGPanelError(
-            result.stderr.strip() or result.stdout.strip() or "Не удалось настроить доступ к панели"
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "Не удалось настроить доступ к панели"
         )
     with connect() as con:
         con.execute(
             """
             UPDATE panel_settings
-            SET public_scheme=?, public_host=?, public_port=?, https_email=?,
-                https_enabled=?, backend_address='127.0.0.1', backend_port=18080,
+            SET public_scheme=?, public_host=?, public_port=?, https_email='',
+                https_enabled=?, manage_placeholder=?,
+                backend_address='127.0.0.1', backend_port=18080,
                 updated_at=CURRENT_TIMESTAMP
             WHERE id=1
             """,
-            (scheme, host, port, email, 1 if scheme == "https" else 0),
+            (scheme, host, port, 1 if scheme == "https" else 0, int(placeholder)),
         )
     return get_panel_settings()
 

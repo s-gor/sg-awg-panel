@@ -316,6 +316,7 @@ def test_panel_security_defaults_and_backend_loopback(tmp_path, monkeypatch):
     assert panel["backend_address"] == "127.0.0.1"
     assert panel["backend_port"] == 18080
     assert panel["public_port"] == 8080
+    assert panel["manage_placeholder"] == 1
     assert panel["backup_schedule"] == "daily"
 
 
@@ -348,6 +349,88 @@ def test_server_side_sessions_can_be_revoked(tmp_path, monkeypatch):
 
 
 def test_update_version_ordering():
-    assert core._version_key("v0.1.0-alpha7") > core._version_key("v0.1.0-alpha6")
+    assert core._version_key("v0.1.0-alpha8") > core._version_key("v0.1.0-alpha6")
     assert core._version_key("v0.1.0-beta1") > core._version_key("v0.1.0-alpha99")
     assert core._version_key("v0.1.0") > core._version_key("v0.1.0-rc9")
+
+
+def test_panel_access_uses_separate_port_and_no_email(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    project = tmp_path / "project"
+    script = project / "deploy" / "configure-panel-access.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(core, "PANEL_PROJECT_DIR", project)
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(core, "_run", fake_run)
+    panel = core.configure_panel_access(
+        scheme="https",
+        public_host="awg.example.com",
+        public_port="62443",
+        manage_placeholder=False,
+    )
+    assert panel["public_port"] == 62443
+    assert panel["https_email"] == ""
+    assert panel["manage_placeholder"] == 0
+    command = calls[0]
+    assert "--manage-placeholder" in command
+    assert "--email" not in command
+
+
+def test_panel_access_rejects_443(tmp_path, monkeypatch):
+    prepare(tmp_path, monkeypatch)
+    try:
+        core.configure_panel_access(
+            scheme="https",
+            public_host="awg.example.com",
+            public_port="443",
+        )
+    except ValueError as exc:
+        assert "зарезервирован" in str(exc)
+    else:
+        raise AssertionError("TCP 443 was accepted as the panel port")
+
+
+def test_alpha7_panel_settings_migrate_placeholder_flag(tmp_path, monkeypatch):
+    import sqlite3
+
+    path = tmp_path / "panel.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE panel_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            public_scheme TEXT NOT NULL DEFAULT 'http',
+            public_host TEXT NOT NULL DEFAULT '',
+            public_port INTEGER NOT NULL DEFAULT 8080,
+            backend_address TEXT NOT NULL DEFAULT '127.0.0.1',
+            backend_port INTEGER NOT NULL DEFAULT 18080,
+            https_email TEXT NOT NULL DEFAULT '',
+            https_enabled INTEGER NOT NULL DEFAULT 0,
+            ip_allowlist TEXT NOT NULL DEFAULT '',
+            backup_schedule TEXT NOT NULL DEFAULT 'daily',
+            backup_keep INTEGER NOT NULL DEFAULT 20,
+            update_channel TEXT NOT NULL DEFAULT 'prerelease',
+            latest_version TEXT NOT NULL DEFAULT '',
+            latest_checked_at TEXT,
+            latest_error TEXT NOT NULL DEFAULT '',
+            auth_epoch INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO panel_settings(id, public_scheme, public_port)
+        VALUES(1, 'http', 8080);
+        """
+    )
+    con.commit()
+    con.close()
+
+    monkeypatch.setattr(db, "DB_PATH", path)
+    db.init_db()
+    with db.connect() as migrated:
+        row = migrated.execute("SELECT * FROM panel_settings WHERE id=1").fetchone()
+    assert row["manage_placeholder"] == 1

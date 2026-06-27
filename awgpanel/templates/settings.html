@@ -15,28 +15,34 @@
 <section class="dashboard-grid">
   <article class="panel-card">
     <h2>Публичный доступ</h2>
-    <p class="muted">Backend всегда слушает только 127.0.0.1:18080. Снаружи панель публикует Nginx.</p>
+    <p class="muted">Python backend всегда слушает только <code>127.0.0.1:18080</code>. Снаружи панель публикует Nginx на отдельном выбираемом порту.</p>
     <form method="post" action="{{ url_for('settings_access_save') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Режим
-        <select name="public_scheme">
-          <option value="http" {{ 'selected' if panel.public_scheme == 'http' else '' }}>HTTP</option>
+        <select name="public_scheme" id="public-scheme">
+          <option value="http" {{ 'selected' if panel.public_scheme == 'http' else '' }}>HTTP — для первоначальной проверки</option>
           <option value="https" {{ 'selected' if panel.public_scheme == 'https' else '' }}>HTTPS + Let's Encrypt</option>
         </select>
       </label>
       <label>Домен панели<input type="text" name="public_host" value="{{ panel.public_host }}" placeholder="awg.example.com"></label>
-      <label>Публичный порт<input type="number" name="public_port" min="1" max="65535" value="{{ panel.public_port }}" required></label>
-      <label>E-mail Let's Encrypt<input type="email" name="https_email" value="{{ panel.https_email }}" placeholder="admin@example.com"></label>
-      <button class="button primary" type="submit">Применить доступ</button>
+      <label>Публичный TCP-порт панели<input type="number" name="public_port" min="1024" max="65535" value="{{ panel.public_port }}" required></label>
+      <p class="field-note">Рекомендуемый порт SG-AWG-Panel: <code>62443</code>. Порты 80 и 443 панель не занимает.</p>
+      <label class="checkbox-row">
+        <input type="checkbox" name="manage_placeholder" value="1" {{ 'checked' if panel.manage_placeholder else '' }}>
+        <span>Управлять заглушкой на HTTPS 443 и выпуском сертификата</span>
+      </label>
+      <p class="field-note">Оставьте включённым на отдельном сервере. Если TCP 443 и сертификат этого домена уже обслуживает другой Nginx-проект, выключите и используйте существующий сертификат.</p>
+      <button class="button primary" type="submit">Сохранить и применить</button>
     </form>
-    <div class="alert warning">Перед HTTPS домен должен указывать на этот сервер, а TCP 80 должен быть открыт для проверки Let's Encrypt.</div>
+    <div class="alert warning">Для первого выпуска сертификата откройте TCP 80. Для панели откройте выбранный TCP-порт. На TCP 443 будет только обычная заглушка.</div>
   </article>
   <article class="panel-card">
     <h2>Текущее состояние</h2>
     <div class="key-values one-column">
-      <div><span>Публичный URL</span><strong>{{ public_url }}</strong></div>
+      <div><span>Публичный URL панели</span><strong>{{ public_url }}</strong></div>
       <div><span>Backend</span><strong>{{ bind_address }}:{{ port }}</strong></div>
       <div><span>HTTPS</span><strong>{{ 'включён' if panel.https_enabled else 'выключен' }}</strong></div>
+      <div><span>Заглушка 443</span><strong>{{ 'управляется этой панелью' if panel.manage_placeholder else 'внешняя / отключена' }}</strong></div>
       <div><span>SQLite</span><strong>{{ db_path }}</strong></div>
       <div><span>AWG config</span><strong>{{ config_dir }}</strong></div>
     </div>

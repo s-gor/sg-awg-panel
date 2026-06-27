@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS panel_settings (
     backend_port INTEGER NOT NULL DEFAULT 18080 CHECK (backend_port BETWEEN 1 AND 65535),
     https_email TEXT NOT NULL DEFAULT '',
     https_enabled INTEGER NOT NULL DEFAULT 0 CHECK (https_enabled IN (0, 1)),
+    manage_placeholder INTEGER NOT NULL DEFAULT 1 CHECK (manage_placeholder IN (0, 1)),
     ip_allowlist TEXT NOT NULL DEFAULT '',
     backup_schedule TEXT NOT NULL DEFAULT 'daily',
     backup_keep INTEGER NOT NULL DEFAULT 20 CHECK (backup_keep BETWEEN 1 AND 365),
@@ -129,6 +130,12 @@ def _migrate(con: sqlite3.Connection) -> None:
             "ALTER TABLE awg_settings ADD COLUMN isolate_clients INTEGER NOT NULL DEFAULT 1"
         )
 
+    panel_columns = _columns(con, "panel_settings")
+    if "manage_placeholder" not in panel_columns:
+        con.execute(
+            "ALTER TABLE panel_settings ADD COLUMN manage_placeholder INTEGER NOT NULL DEFAULT 1"
+        )
+
     client_columns = _columns(con, "awg_clients")
     migrations = {
         "allowed_ips": "TEXT NOT NULL DEFAULT '0.0.0.0/0'",
@@ -177,9 +184,9 @@ def init_db() -> None:
             """
             INSERT OR IGNORE INTO panel_settings (
                 id, public_scheme, public_host, public_port,
-                backend_address, backend_port, https_enabled,
+                backend_address, backend_port, https_enabled, manage_placeholder,
                 backup_schedule, backup_keep, update_channel, auth_epoch
             ) VALUES (1, 'http', '', 8080, '127.0.0.1', 18080,
-                      0, 'daily', 20, 'prerelease', 1)
+                      0, 1, 'daily', 20, 'prerelease', 1)
             """
         )

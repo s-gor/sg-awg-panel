@@ -27,10 +27,10 @@ wait_for_apt(){
 [[ -r /etc/os-release ]] || fail "cannot detect operating system"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 7 supports Ubuntu only"
+[[ "${ID:-}" == "ubuntu" ]] || fail "Alpha 8 supports Ubuntu only"
 case "${VERSION_ID:-}" in
   22.04|24.04) ;;
-  *) fail "Alpha 7 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
+  *) fail "Alpha 8 is intended for Ubuntu 22.04/24.04; found ${VERSION_ID:-unknown}" ;;
 esac
 
 get_env(){
@@ -104,6 +104,7 @@ AWGPANEL_BACKEND_PORT=18080
 AWGPANEL_PUBLIC_SCHEME=http
 AWGPANEL_PUBLIC_HOST=
 AWGPANEL_PUBLIC_PORT=${AWGPANEL_PUBLIC_PORT:-8080}
+AWGPANEL_MANAGE_PLACEHOLDER=1
 AWGPANEL_HTTPS_EMAIL=
 AWGPANEL_SECURE_COOKIES=0
 AWGPANEL_TRUST_PROXY_HEADERS=1
@@ -124,12 +125,12 @@ BACKEND_PORT="$(get_env AWGPANEL_PORT 18080)"
 PUBLIC_PORT="$(get_env AWGPANEL_PUBLIC_PORT 8080)"
 PUBLIC_SCHEME="$(get_env AWGPANEL_PUBLIC_SCHEME http)"
 PUBLIC_HOST="$(get_env AWGPANEL_PUBLIC_HOST "")"
-HTTPS_EMAIL="$(get_env AWGPANEL_HTTPS_EMAIL "")"
+MANAGE_PLACEHOLDER="$(get_env AWGPANEL_MANAGE_PLACEHOLDER 1)"
 
-python3 - "$ENV_FILE" "$PUBLIC_PORT" "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$HTTPS_EMAIL" <<'PYENV'
+python3 - "$ENV_FILE" "$PUBLIC_PORT" "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$MANAGE_PLACEHOLDER" <<'PYENV'
 from pathlib import Path
 import sys
-path=Path(sys.argv[1]); public_port,scheme,host,email=sys.argv[2:]
+path=Path(sys.argv[1]); public_port,scheme,host,manage_placeholder=sys.argv[2:]
 updates={
     'AWGPANEL_BIND_ADDRESS':'127.0.0.1',
     'AWGPANEL_PORT':'18080',
@@ -137,7 +138,8 @@ updates={
     'AWGPANEL_PUBLIC_PORT':public_port,
     'AWGPANEL_PUBLIC_SCHEME':scheme,
     'AWGPANEL_PUBLIC_HOST':host,
-    'AWGPANEL_HTTPS_EMAIL':email,
+    'AWGPANEL_MANAGE_PLACEHOLDER':manage_placeholder,
+    'AWGPANEL_HTTPS_EMAIL':'',
     'AWGPANEL_TRUST_PROXY_HEADERS':'1',
     'AWGPANEL_SECURE_COOKIES':'1' if scheme=='https' else '0',
 }
@@ -159,13 +161,13 @@ AWGPANEL_AWG_SERVICE="$AWG_SERVICE" \
 PUBLIC_SCHEME_SYNC="${PUBLIC_SCHEME:-${OLD_SCHEME:-http}}"
 PUBLIC_HOST_SYNC="${PUBLIC_HOST:-${OLD_HOST:-}}"
 PUBLIC_PORT_SYNC="${PUBLIC_PORT:-${OLD_PORT:-8080}}"
-HTTPS_EMAIL_SYNC="${HTTPS_EMAIL:-${OLD_EMAIL:-}}"
-AWGPANEL_DB="$DB_PATH" PUBLIC_SCHEME_SYNC="$PUBLIC_SCHEME_SYNC" PUBLIC_HOST_SYNC="$PUBLIC_HOST_SYNC" PUBLIC_PORT_SYNC="$PUBLIC_PORT_SYNC" HTTPS_EMAIL_SYNC="$HTTPS_EMAIL_SYNC" .venv/bin/python - <<'PYSET'
+MANAGE_PLACEHOLDER_SYNC="${MANAGE_PLACEHOLDER:-1}"
+AWGPANEL_DB="$DB_PATH" PUBLIC_SCHEME_SYNC="$PUBLIC_SCHEME_SYNC" PUBLIC_HOST_SYNC="$PUBLIC_HOST_SYNC" PUBLIC_PORT_SYNC="$PUBLIC_PORT_SYNC" MANAGE_PLACEHOLDER_SYNC="$MANAGE_PLACEHOLDER_SYNC" .venv/bin/python - <<'PYSET'
 import os
 from awgpanel.db import connect
 with connect() as con:
-    con.execute("""UPDATE panel_settings SET public_scheme=?, public_host=?, public_port=?, https_email=?, https_enabled=?, backend_address='127.0.0.1', backend_port=18080, updated_at=CURRENT_TIMESTAMP WHERE id=1""", (
-        os.environ['PUBLIC_SCHEME_SYNC'], os.environ['PUBLIC_HOST_SYNC'], int(os.environ['PUBLIC_PORT_SYNC']), os.environ['HTTPS_EMAIL_SYNC'], 1 if os.environ['PUBLIC_SCHEME_SYNC']=='https' else 0
+    con.execute("""UPDATE panel_settings SET public_scheme=?, public_host=?, public_port=?, https_email='', https_enabled=?, manage_placeholder=?, backend_address='127.0.0.1', backend_port=18080, updated_at=CURRENT_TIMESTAMP WHERE id=1""", (
+        os.environ['PUBLIC_SCHEME_SYNC'], os.environ['PUBLIC_HOST_SYNC'], int(os.environ['PUBLIC_PORT_SYNC']), 1 if os.environ['PUBLIC_SCHEME_SYNC']=='https' else 0, int(os.environ['MANAGE_PLACEHOLDER_SYNC'])
     ))
 PYSET
 
@@ -179,9 +181,8 @@ systemctl is-active --quiet sg-awg-panel.service || {
   fail "web service is not active"
 }
 
-ACCESS_ARGS=(--scheme "$PUBLIC_SCHEME" --port "$PUBLIC_PORT")
+ACCESS_ARGS=(--scheme "$PUBLIC_SCHEME" --port "$PUBLIC_PORT" --manage-placeholder "$MANAGE_PLACEHOLDER")
 [[ -n "$PUBLIC_HOST" ]] && ACCESS_ARGS+=(--domain "$PUBLIC_HOST")
-[[ -n "$HTTPS_EMAIL" ]] && ACCESS_ARGS+=(--email "$HTTPS_EMAIL")
 bash deploy/configure-panel-access.sh "${ACCESS_ARGS[@]}"
 
 log "Ready: SG-AWG-Panel $(.venv/bin/python -m awgpanel --version | awk '{print $2}')"

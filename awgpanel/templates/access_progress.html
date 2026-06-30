@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15191f">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Настройка HTTPS — SG-AWG-Panel</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_version }}">
+</head>
+<body class="access-progress-body">
+  <main class="access-progress-shell">
+    <section class="access-progress-card">
+      <header class="access-progress-header">
+        <p class="panel-kicker">SG-AWG-PANEL / HTTPS</p>
+        <h1 id="access-title">Настройка публичного доступа</h1>
+        <p id="access-description">Полный вывод Certbot и Nginx показывается в живом терминале ниже без сокращений.</p>
+      </header>
+
+      <ol class="access-stage-list" aria-label="Этапы настройки HTTPS">
+        <li data-access-step="prepare"><span>1</span><div><strong>Подготовка</strong><small>Проверка домена, порта и Nginx</small></div></li>
+        <li data-access-step="certificate"><span>2</span><div><strong>Сертификат</strong><small>Полный процесс Certbot</small></div></li>
+        <li data-access-step="nginx"><span>3</span><div><strong>Nginx</strong><small>Проверка и применение конфигурации</small></div></li>
+        <li data-access-step="complete"><span>4</span><div><strong>Готово</strong><small>Проверка нового адреса панели</small></div></li>
+      </ol>
+
+      <div class="access-progress-state" data-state="{{ job.state }}">
+        <span class="access-progress-spinner" id="access-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="access-progress-message">{{ job.message }}</strong>
+          <small id="access-countdown">Ожидаем завершения настройки…</small>
+        </div>
+      </div>
+
+      <section class="access-target" id="access-target">
+        <span>Новый адрес панели</span>
+        <code id="access-target-url">{{ target_url }}</code>
+      </section>
+
+      <div class="access-action-row">
+        <button class="button secondary" type="button" id="check-now" hidden>Проверить сейчас</button>
+        <a class="button primary" id="open-login" href="#" hidden>Открыть страницу входа</a>
+      </div>
+
+      <section class="access-rate-limit" id="rate-limit" hidden>
+        <h2>Временный лимит Let’s Encrypt</h2>
+        <p><strong>Для этого же домена уже выпущено 5 сертификатов за последние 7 дней.</strong></p>
+        <p>Это не ошибка SG-AWG-Panel, DNS или Nginx. Повторные запросы до окончания лимита не помогут.</p>
+        <p>Предыдущие настройки сохранены, доступ к панели не изменён. Можно дождаться указанного времени либо использовать другой домен или поддомен.</p>
+        <div class="access-rate-countdown" id="retry-countdown">Ожидаем точное время повторного запроса…</div>
+        <dl>
+          <div><dt>Повторить после, UTC</dt><dd id="retry-utc">не указано</dd></div>
+          <div><dt>По местному времени</dt><dd id="retry-local">не указано</dd></div>
+        </dl>
+        <div class="access-action-row">
+          <a class="button primary" href="{{ url_for('security_page') }}#panel-access">Изменить домен</a>
+          <a class="button secondary" href="{{ url_for('security_page') }}">Повторить позже</a>
+        </div>
+      </section>
+
+      <div class="access-restore-success" id="restore-success" hidden>
+        Настройки не применены. Предыдущая рабочая конфигурация успешно восстановлена.
+      </div>
+
+      <div class="access-progress-error" id="access-progress-error" hidden>
+        <strong>Настройка не завершена</strong>
+        <p id="generic-error-text">Предыдущий рабочий доступ сохранён. Подробности находятся в блоке «Ход выполнения».</p>
+        <a class="button secondary" href="{{ url_for('security_page') }}">Вернуться к настройкам</a>
+      </div>
+
+      <section class="access-live-terminal" aria-labelledby="access-terminal-title">
+        <header class="access-live-terminal-header">
+          <div>
+            <span class="access-terminal-dot" aria-hidden="true"></span>
+            <strong id="access-terminal-title">Живой терминал Certbot и Nginx</strong>
+          </div>
+          <span id="access-terminal-state">Выполняется</span>
+        </header>
+        <pre id="access-progress-log" aria-live="polite">{{ job.log or 'Задача запускается…' }}</pre>
+      </section>
+    </section>
+  </main>
+<script>
+(() => {
+  const statusUrl = {{ url_for('panel_access_job_status', token=job_token)|tojson }};
+  const eventsUrl = {{ url_for('panel_access_job_events', token=job_token)|tojson }};
+  const initialTarget = {{ target_url|tojson }}.replace(/\/$/, '');
+  const probePath = {{ url_for('panel_access_job_probe', token=job_token)|tojson }};
+  const completePath = {{ url_for('panel_access_job_complete', token=job_token)|tojson }};
+  const progressPath = {{ url_for('panel_access_job_progress', token=job_token)|tojson }};
+  const alivePath = {{ url_for('panel_access_job_alive', token=job_token)|tojson }};
+  const message = document.getElementById('access-progress-message');
+  const countdown = document.getElementById('access-countdown');
+  const log = document.getElementById('access-progress-log');
+  const stateBox = document.querySelector('.access-progress-state');
+  const errorBox = document.getElementById('access-progress-error');
+  const rateBox = document.getElementById('rate-limit');
+  const restoreBox = document.getElementById('restore-success');
+  const targetCode = document.getElementById('access-target-url');
+  const openButton = document.getElementById('open-login');
+  const checkButton = document.getElementById('check-now');
+  const spinner = document.getElementById('access-spinner');
+  const terminalLabel = document.getElementById('access-terminal-state');
+  const steps = Array.from(document.querySelectorAll('[data-access-step]'));
+  let targetUrl = initialTarget;
+  let finished = false;
+  let source = null;
+  let migrationStarted = false;
+  let migrationTimer = null;
+
+  const loginUrl = () => targetUrl + completePath;
+  const setStep = (name, state='active') => {
+    const order = ['prepare','certificate','nginx','complete'];
+    const index = order.indexOf(name);
+    steps.forEach((node, i) => {
+      node.classList.toggle('active', state === 'active' && i === index);
+      node.classList.toggle('done', i < index || (state === 'done' && i <= index));
+      node.classList.toggle('error', state === 'error' && i === index);
+    });
+  };
+  const inspectChunk = (text) => {
+    if (/Requesting a certificate|Запуск Certbot|Получение сертификата/i.test(text)) setStep('certificate');
+    if (/Certificate is saved at:|Successfully received certificate|Сертификат готов/i.test(text)) setStep('nginx');
+    if (/nginx: configuration file .* test is successful|Проверка итоговой конфигурации Nginx/i.test(text)) setStep('complete');
+  };
+  const appendLog = (text) => {
+    if (!text) return;
+    if (log.textContent === 'Задача запускается…') log.textContent = '';
+    log.textContent += text;
+    inspectChunk(text);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  function parseRetry(value) {
+    const utc = document.getElementById('retry-utc');
+    const local = document.getElementById('retry-local');
+    const retryCountdown = document.getElementById('retry-countdown');
+    if (!value) {
+      utc.textContent = 'Let’s Encrypt не передал точное время';
+      local.textContent = 'проверьте позднее';
+      retryCountdown.textContent = 'Повторный запрос пока недоступен.';
+      return;
+    }
+    utc.textContent = value;
+    let normalized = value.trim();
+    if (/ UTC$/i.test(normalized)) normalized = normalized.replace(/ UTC$/i, 'Z').replace(' ', 'T');
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) {
+      local.textContent = 'не удалось преобразовать';
+      retryCountdown.textContent = 'Повторите после времени, указанного выше.';
+      return;
+    }
+    local.textContent = date.toLocaleString();
+    const update = () => {
+      const left = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 1000));
+      if (!left) { retryCountdown.textContent = 'Лимит должен быть снят. Можно повторить выпуск сертификата.'; return; }
+      const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60), sec = left % 60;
+      retryCountdown.textContent = `Повторный выпуск будет доступен примерно через ${d ? d+' д. ' : ''}${h ? h+' ч. ' : ''}${m} мин. ${sec} сек.`;
+      setTimeout(update, 1000);
+    };
+    update();
+  }
+
+  function showOpenButtons() {
+    openButton.href = loginUrl();
+    openButton.hidden = false;
+    checkButton.hidden = false;
+  }
+
+  function probe() {
+    if (!targetUrl || targetUrl.includes('SERVER_IP')) return;
+    countdown.textContent = 'Проверяем новый адрес панели…';
+    const image = new Image();
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      countdown.textContent = 'Новый адрес пока не ответил. Нажмите «Проверить сейчас» повторно.';
+    }, 7000);
+    image.onload = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      countdown.textContent = 'Новый адрес отвечает. Можно открыть страницу входа.';
+      showOpenButtons();
+    };
+    image.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      countdown.textContent = 'Новый адрес пока не ответил. Нажмите «Проверить сейчас» повторно.';
+    };
+    image.src = targetUrl + probePath + '?t=' + Date.now();
+  }
+
+  function showError(data) {
+    finished = true;
+    source?.close();
+    spinner.hidden = true;
+    terminalLabel.textContent = 'Ошибка';
+    terminalLabel.dataset.state = 'error';
+    stateBox.dataset.state = 'error';
+    restoreBox.hidden = !data.restored;
+    checkButton.hidden = true;
+    const active = steps.find(node => node.classList.contains('active'))?.dataset.accessStep || 'prepare';
+    setStep(active, 'error');
+    if (data.errorCode === 'letsencrypt_rate_limit_exact_set') {
+      document.getElementById('access-title').textContent = 'Сертификат пока нельзя выпустить';
+      document.getElementById('access-description').textContent = 'Let’s Encrypt временно ограничил повторный выпуск сертификата для этого домена.';
+      message.textContent = 'Предыдущий рабочий доступ сохранён';
+      countdown.textContent = 'Изменения не применены.';
+      rateBox.hidden = false;
+      errorBox.hidden = true;
+      parseRetry(data.retryAfterUtc || '');
+    } else {
+      message.textContent = data.message || 'Настройка не завершена';
+      countdown.textContent = 'Изменения не применены. Точная причина видна в терминале.';
+      errorBox.hidden = false;
+    }
+  }
+
+  function showStatus(data) {
+    if (data.targetUrl) {
+      targetUrl = String(data.targetUrl).replace(/\/$/, '');
+      targetCode.textContent = targetUrl;
+    }
+    stateBox.dataset.state = data.state || 'running';
+    message.textContent = data.message || 'Настройка выполняется';
+    if (data.state === 'success') {
+      if (targetOriginDiffers()) {
+        spinner.hidden = false;
+        terminalLabel.textContent = 'Переход на новый HTTPS-адрес…';
+        message.textContent = 'HTTPS настроен. Переносим терминал на новый адрес панели.';
+        countdown.textContent = 'Полный журнал и итог откроются автоматически.';
+        migrateToTargetProgress();
+        return;
+      }
+      finished = true;
+      spinner.hidden = true;
+      terminalLabel.textContent = 'Завершено';
+      terminalLabel.dataset.state = 'success';
+      message.textContent = 'Настройка HTTPS завершена';
+      countdown.textContent = 'Сертификат и конфигурация Nginx применены. Проверяем новый адрес.';
+      setStep('complete', 'done');
+      showOpenButtons();
+      setTimeout(probe, 2500);
+    } else if (data.state === 'error') {
+      showError(data);
+    }
+  }
+
+  function targetOriginDiffers() {
+    try {
+      return Boolean(targetUrl) && new URL(targetUrl).origin !== window.location.origin;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function migrateToTargetProgress() {
+    if (migrationStarted || !targetOriginDiffers()) return;
+    migrationStarted = true;
+    terminalLabel.textContent = 'Переключение на новый HTTPS-адрес…';
+    countdown.textContent = 'Nginx меняет протокол панели. Терминал продолжится автоматически по новому адресу.';
+
+    const attempt = async () => {
+      try {
+        await fetch(targetUrl + alivePath + '?t=' + Date.now(), {
+          mode: 'no-cors',
+          cache: 'no-store',
+          redirect: 'follow',
+        });
+        window.location.replace(targetUrl + progressPath + '?resume=1');
+      } catch (_) {
+        migrationTimer = window.setTimeout(attempt, 900);
+      }
+    };
+    attempt();
+  }
+
+  function connect() {
+    const offset = log.textContent === 'Задача запускается…' ? 0 : log.textContent.length;
+    source = new EventSource(eventsUrl + '?offset=' + encodeURIComponent(offset));
+    source.addEventListener('log', (event) => {
+      const data = JSON.parse(event.data);
+      appendLog(data.text || '');
+    });
+    source.addEventListener('status', (event) => showStatus(JSON.parse(event.data)));
+    source.addEventListener('end', () => source.close());
+    source.onerror = async () => {
+      if (finished) return source.close();
+      terminalLabel.textContent = 'Переподключение…';
+      if (targetOriginDiffers()) migrateToTargetProgress();
+      try {
+        const response = await fetch(statusUrl + '?t=' + Date.now(), {cache: 'no-store'});
+        if (response.ok) showStatus(await response.json());
+      } catch (_) {}
+    };
+  }
+
+  checkButton.addEventListener('click', probe);
+  setStep('prepare');
+  inspectChunk(log.textContent);
+  showStatus({
+    state: {{ job.state|tojson }},
+    message: {{ job.message|tojson }},
+    targetUrl: {{ target_url|tojson }},
+    errorCode: {{ job.get('errorCode', '')|tojson }},
+    retryAfterUtc: {{ job.get('retryAfterUtc', '')|tojson }},
+    restored: {{ job.get('restored', false)|tojson }}
+  });
+  if (!finished) connect();
+  window.setInterval(async()=>{
+    if (finished && !targetOriginDiffers()) return;
+    try {
+      const response=await fetch(statusUrl+'?t='+Date.now(),{cache:'no-store'});
+      if(response.ok) showStatus(await response.json());
+    } catch (_) {
+      if(targetOriginDiffers()) migrateToTargetProgress();
+    }
+  },1000);
+})();
+</script>
+</body>
+</html>

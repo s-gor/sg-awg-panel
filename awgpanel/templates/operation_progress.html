@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15191f">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{ operation.title }} — SG-AWG-Panel</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_version }}">
+</head>
+<body class="access-progress-body">
+  <main class="access-progress-shell">
+    <section class="access-progress-card operation-progress-card">
+      <header class="access-progress-header">
+        <p class="panel-kicker">SG-AWG-PANEL / ОПЕРАЦИЯ</p>
+        <h1 id="operation-title">{{ operation.title }}</h1>
+        <p>Сверху показан понятный итог. Подробные этапы и технические сообщения находятся в раскрываемом журнале.</p>
+      </header>
+
+      <div class="access-progress-state" id="operation-state" data-state="{{ operation.state }}">
+        <span class="access-progress-spinner" id="operation-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="operation-message">{{ operation.message }}</strong>
+          <small id="operation-time">Операция выполняется…</small>
+        </div>
+      </div>
+
+      <div class="access-restore-success" id="operation-restored" hidden>
+        Предыдущее рабочее состояние успешно восстановлено.
+      </div>
+
+      <div class="access-progress-error" id="operation-error" hidden>
+        <strong>Операция не завершена</strong>
+        <p>Технические подробности находятся в блоке «Ход выполнения».</p>
+      </div>
+
+      <div class="access-action-row">
+        <button class="button secondary" type="button" id="operation-check">Проверить сейчас</button>
+        <a class="button primary" id="operation-continue" href="{{ operation.successPath or '/' }}" hidden>Продолжить</a>
+        <a class="button secondary" id="operation-back" href="{{ operation.errorPath or '/' }}" hidden>Вернуться</a>
+      </div>
+
+      <details class="access-progress-log" open>
+        <summary>Ход выполнения</summary>
+        <pre id="operation-log">{{ operation.log or 'Операция запускается…' }}</pre>
+      </details>
+    </section>
+  </main>
+<script>
+(() => {
+  const statusUrl = {{ status_url|tojson }};
+  const stateBox = document.getElementById('operation-state');
+  const message = document.getElementById('operation-message');
+  const time = document.getElementById('operation-time');
+  const log = document.getElementById('operation-log');
+  const spinner = document.getElementById('operation-spinner');
+  const errorBox = document.getElementById('operation-error');
+  const restoredBox = document.getElementById('operation-restored');
+  const continueButton = document.getElementById('operation-continue');
+  const backButton = document.getElementById('operation-back');
+  const checkButton = document.getElementById('operation-check');
+  let terminal = false;
+
+  function render(data) {
+    stateBox.dataset.state = data.state || 'running';
+    message.textContent = data.message || 'Операция выполняется';
+    if (data.updatedAt) {
+      const date = new Date(data.updatedAt);
+      time.textContent = Number.isNaN(date.getTime()) ? data.updatedAt : 'Последнее обновление: ' + date.toLocaleString();
+    }
+    if (typeof data.log === 'string' && data.log.trim()) {
+      log.textContent = data.log;
+      log.scrollTop = log.scrollHeight;
+    }
+    if (data.state === 'success') {
+      terminal = true;
+      spinner.hidden = true;
+      checkButton.hidden = true;
+      continueButton.href = data.successPath || '/';
+      continueButton.hidden = false;
+      time.textContent = 'Операция завершена. Можно продолжить.';
+    } else if (data.state === 'error') {
+      terminal = true;
+      spinner.hidden = true;
+      checkButton.hidden = true;
+      errorBox.hidden = false;
+      restoredBox.hidden = !data.restored;
+      backButton.href = data.errorPath || '/';
+      backButton.hidden = false;
+      time.textContent = 'Изменения требуют проверки.';
+    }
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch(statusUrl + '?t=' + Date.now(), {cache: 'no-store'});
+      if (response.ok) render(await response.json());
+    } catch (_) {
+      time.textContent = 'Backend временно недоступен. Повторяем проверку…';
+    }
+    if (!terminal) window.setTimeout(poll, 1000);
+  }
+
+  checkButton.addEventListener('click', poll);
+  render({
+    state: {{ operation.state|tojson }},
+    message: {{ operation.message|tojson }},
+    log: {{ (operation.log or '')|tojson }},
+    successPath: {{ (operation.successPath or '/')|tojson }},
+    errorPath: {{ (operation.errorPath or '/')|tojson }},
+    restored: {{ operation.get('restored', false)|tojson }},
+    updatedAt: {{ operation.get('updatedAt', '')|tojson }}
+  });
+  if (!terminal) poll();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}JSON клиента — SG-AWG-Panel{% endblock %}
+{% block section %}CLIENTS / JSON{% endblock %}
+{% block heading %}JSON клиента {{ client.name }}{% endblock %}
+{% block subtitle %}Профиль устройства, доступ, маршруты и назначенный Outbound в одном документе{% endblock %}
+{% block content %}
+<div class="ui-page json-workbench">
+<nav class="client-tabs" aria-label="Разделы клиента">
+  <a href="{{ url_for('client_edit', client_id=client.id) }}">Основное</a>
+  {% if client.effective_enabled %}<a href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% else %}<span>Конфигурация</span>{% endif %}
+  <a href="{{ url_for('traffic_rules_page', tab='rules') }}">Traffic Rules</a>
+  <a href="{{ url_for('client_edit', client_id=client.id) }}#statistics">Статистика</a>
+  <a class="active" href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>
+</nav>
+<section class="ui-card">
+  <header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">КЛИЕНТ #{{ client.id }}</p><h2>{{ client.name }}</h2><p>Форма и JSON редактируют одну запись клиента. После сохранения конфигурация AWG Server и Traffic Rules применяются автоматически.</p></div><span class="json-mode-badge">{ } JSON</span></header>
+  <div class="json-warning"><strong>Ключи защищены.</strong><span><code>privateKey</code> и <code>presharedKey</code> должны оставаться <code>$KEEP</code>. Для замены ключей используйте кнопку пересоздания.</span></div>
+  <div class="json-info-grid"><div><strong>client</strong><span>Имя, ручной статус, срок действия, адрес, MTU и защищённая ссылка. DNS работает автоматически.</span></div><div><strong>traffic</strong><span>AllowedIPs, исключения, сети за клиентом и режим выхода.</span></div><div><strong>Проверка</strong><span>Адреса, сети и Outbound проверяются до изменения базы.</span></div></div>
+  <form method="post" class="json-editor-form" data-json-editor-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="json-editor-label" for="json_config">Объект клиента</label>
+    <textarea id="json_config" name="json_config" class="json-editor json-editor-tall" spellcheck="false" autocomplete="off" data-json-editor-input>{{ client_json }}</textarea>
+    {% include "_json_validation.html" %}
+    <div class="json-editor-actions">
+      <a class="button secondary" href="{{ url_for('client_edit', client_id=client.id) }}">Открыть форму</a>
+      <button class="button ghost" type="button" data-format-json>Форматировать</button>
+      <button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button>
+      <button class="button primary" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>Сохранить и применить JSON</button>
+    </div>
+  </form>
+</section></div>
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+{% endblock %}

@@ -1,0 +1,17 @@
+<script>
+(() => {
+  document.querySelectorAll('[data-json-editor-form]').forEach((form) => {
+    const editor = form.querySelector('[data-json-editor-input]');
+    const save = form.querySelector('[data-json-save]');
+    const token = form.querySelector('[data-json-validation-token]');
+    const result = form.querySelector('[data-json-validation-result]');
+    if (!editor || !save || !token || !result) return;
+    editor.addEventListener('input', () => {
+      token.value = '';
+      save.disabled = true;
+      result.className = 'json-validation-result pending';
+      result.innerHTML = '<strong>Требуется повторная проверка</strong><p>Текст изменён после последней проверки. Сохранение снова заблокировано.</p>';
+    });
+  });
+})();
+</script>

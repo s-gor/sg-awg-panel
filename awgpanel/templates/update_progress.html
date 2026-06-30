@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#15191f">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Обновление SG-AWG-Panel</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_version }}">
+</head>
+<body class="access-progress-body">
+  <main class="access-progress-shell">
+    <section class="access-progress-card">
+      <header class="access-progress-header">
+        <p class="panel-kicker">SG-AWG-PANEL / ОБНОВЛЕНИЕ</p>
+        <h1>Устанавливается {{ version }}</h1>
+        <p>Сверху показан понятный итог. Подробные этапы установки и отката находятся в блоке «Ход выполнения».</p>
+      </header>
+
+      <div class="access-progress-state" id="update-state" data-state="starting">
+        <span class="access-progress-spinner" id="update-spinner" aria-hidden="true"></span>
+        <div>
+          <strong id="update-message">Подготовка обновления</strong>
+          <small id="update-countdown">Ожидаем запуск установщика…</small>
+        </div>
+      </div>
+
+      <div class="access-restore-success" id="update-restored" hidden>
+        Обновление не применено. Предыдущая рабочая версия успешно восстановлена.
+      </div>
+
+      <div class="access-progress-error" id="update-error" hidden>
+        <strong>Обновление не завершено</strong>
+        <p>Панель восстановила предыдущую версию. Технические подробности находятся ниже.</p>
+      </div>
+
+      <div class="access-action-row">
+        <button class="button secondary" type="button" id="check-now">Проверить сейчас</button>
+        <a class="button primary" id="open-login" href="{{ login_url }}" hidden>Открыть страницу входа</a>
+      </div>
+
+      <details class="access-progress-log">
+        <summary>Ход выполнения</summary>
+        <pre id="update-log">Подготовка обновления…</pre>
+      </details>
+    </section>
+  </main>
+<script>
+(() => {
+  const statusUrl = {{ status_url|tojson }};
+  const logUrl = {{ log_url|tojson }};
+  let loginUrl = {{ login_url|tojson }};
+  const stateBox = document.getElementById('update-state');
+  const message = document.getElementById('update-message');
+  const countdown = document.getElementById('update-countdown');
+  const log = document.getElementById('update-log');
+  const spinner = document.getElementById('update-spinner');
+  const restored = document.getElementById('update-restored');
+  const errorBox = document.getElementById('update-error');
+  const openButton = document.getElementById('open-login');
+  const checkButton = document.getElementById('check-now');
+  let terminal = false;
+  let autoAttempted = false;
+  let seconds = 30;
+  let timer = null;
+
+  function showLogin() {
+    openButton.href = loginUrl;
+    openButton.hidden = false;
+  }
+
+  function beginCountdown() {
+    if (timer || autoAttempted) return;
+    message.textContent = 'Проверяем запуск backend';
+    countdown.textContent = `Автоматическая проверка через ${seconds} с.`;
+    timer = window.setInterval(() => {
+      seconds -= 1;
+      countdown.textContent = seconds > 0 ? `Автоматическая проверка через ${seconds} с.` : 'Проверяем страницу входа…';
+      if (seconds <= 0) {
+        clearInterval(timer);
+        timer = null;
+        autoAttempted = true;
+        probe(true);
+      }
+    }, 1000);
+  }
+
+  async function probe(allowRedirect = false) {
+    message.textContent = 'Проверяем запуск backend';
+    countdown.textContent = 'Проверяется новая страница входа…';
+    try {
+      const response = await fetch(loginUrl + (loginUrl.includes('?') ? '&' : '?') + 'probe=' + Date.now(), {
+        cache: 'no-store', credentials: 'same-origin'
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      stateBox.dataset.state = 'success';
+      message.textContent = 'Backend запущен';
+      countdown.textContent = 'Страница входа доступна по кнопке ниже.';
+      showLogin();
+      if (allowRedirect) window.setTimeout(() => window.location.replace(loginUrl), 1800);
+    } catch (_) {
+      countdown.textContent = 'Backend пока не ответил. Используйте «Проверить сейчас» ещё раз.';
+      showLogin();
+    }
+  }
+
+  function render(data) {
+    if (data.targetUrl) loginUrl = data.targetUrl;
+    if (typeof data.log === 'string' && data.log.trim()) {
+      log.textContent = data.log;
+      log.scrollTop = log.scrollHeight;
+    }
+    stateBox.dataset.state = data.state || 'running';
+    message.textContent = data.message || 'Обновление выполняется';
+    if (data.state === 'success') {
+      terminal = true;
+      spinner.hidden = true;
+      showLogin();
+      beginCountdown();
+    } else if (data.state === 'rolled_back' || data.state === 'error') {
+      terminal = true;
+      spinner.hidden = true;
+      restored.hidden = data.state !== 'rolled_back';
+      errorBox.hidden = false;
+      checkButton.hidden = true;
+      showLogin();
+      countdown.textContent = 'Предыдущая версия доступна по кнопке ниже.';
+    }
+  }
+
+  async function refreshLog() {
+    try {
+      const response = await fetch(logUrl + '?t=' + Date.now(), {cache: 'no-store'});
+      if (response.ok) {
+        const text = await response.text();
+        if (text.trim()) {
+          log.textContent = text.slice(-32000);
+          log.scrollTop = log.scrollHeight;
+        }
+      }
+    } catch (_) {}
+  }
+
+  async function poll() {
+    await refreshLog();
+    try {
+      const response = await fetch(statusUrl + '?t=' + Date.now(), {cache: 'no-store'});
+      if (response.ok) render(await response.json());
+    } catch (_) {
+      countdown.textContent = 'Backend перезапускается. Проверка будет повторена.';
+    }
+    if (!terminal) window.setTimeout(poll, 1000);
+    else refreshLog();
+  }
+
+  checkButton.addEventListener('click', () => terminal ? probe(false) : poll());
+  poll();
+})();
+</script>
+</body>
+</html>

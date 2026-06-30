@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Изменить Outbound — SG-AWG-Panel{% endblock %}
+{% block section %}OUTBOUNDS / EDIT{% endblock %}
+{% block heading %}Outbound {{ outbound.name }}{% endblock %}
+{% block subtitle %}Название и замена клиентской конфигурации выходного AWG-туннеля{% endblock %}
+{% block content %}
+<div class="ui-page client-edit-layout"><section class="ui-card ui-card-form">
+  <header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">OUTBOUND #{{ outbound.id }}</p><h2>{{ outbound.name }}</h2><p>{{ outbound.address }} · {{ outbound.endpoint }}</p></div><div class="ui-heading-actions"><a class="button secondary" href="{{ url_for('outbound_edit_page', outbound_id=outbound.id) }}">Форма</a><a class="button ghost json-action" href="{{ url_for('outbound_json_page', outbound_id=outbound.id) }}">{ } JSON</a></div></header>
+  <form method="post" class="ui-form" action="{{ url_for('outbound_edit_page', outbound_id=outbound.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label><span>Название профиля</span><input name="name" value="{{ outbound.name }}" maxlength="64" required></label><label><span>Новая клиентская конфигурация</span><textarea name="config_text" rows="15" placeholder="Оставьте пустым, чтобы сохранить текущую закрытую конфигурацию"></textarea><small>Закрытый ключ повторно в форме не показывается.</small></label><div class="ui-actions"><button class="button primary" type="submit">Сохранить и применить</button><a class="button ghost" href="{{ url_for('outbounds_page') }}">Отмена</a></div></form>
+</section></div>
+{% endblock %}

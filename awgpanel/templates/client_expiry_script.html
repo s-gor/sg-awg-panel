@@ -1,0 +1,73 @@
+<script>
+(function () {
+  function localValueFromUtc(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return shifted.toISOString().slice(0, 16);
+  }
+
+  function updateScope(scope) {
+    const selected = scope.querySelector('input[type="radio"][data-expiry-mode]:checked');
+    const mode = selected ? selected.value : 'unlimited';
+    const period = scope.querySelector('[data-expiry-period]');
+    const date = scope.querySelector('[data-expiry-date]');
+    if (period) period.hidden = mode !== 'period';
+    if (date) date.hidden = mode !== 'date';
+  }
+
+  document.querySelectorAll('[data-expiry-scope]').forEach((scope) => {
+    const local = scope.querySelector('[data-expiry-local]');
+    const utc = scope.querySelector('[data-expiry-utc]');
+    const offset = scope.querySelector('[data-timezone-offset]');
+    if (offset) offset.value = String(new Date().getTimezoneOffset());
+    if (local && local.dataset.currentUtc && !local.value) {
+      local.value = localValueFromUtc(local.dataset.currentUtc);
+    }
+    const syncUtc = () => {
+      if (!utc || !local) return;
+      if (!local.value) { utc.value = ''; return; }
+      const date = new Date(local.value);
+      utc.value = Number.isNaN(date.getTime()) ? '' : date.toISOString();
+    };
+    if (local) {
+      local.addEventListener('change', syncUtc);
+      local.addEventListener('input', syncUtc);
+      syncUtc();
+    }
+    scope.querySelectorAll('input[type="radio"][data-expiry-mode]').forEach((radio) => {
+      radio.addEventListener('change', () => updateScope(scope));
+    });
+    updateScope(scope);
+  });
+
+  document.querySelectorAll('time[data-utc]').forEach((node) => {
+    const date = new Date(node.dataset.utc);
+    if (!Number.isNaN(date.getTime())) {
+      node.textContent = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      }).format(date);
+      node.title = node.dataset.utc;
+    }
+  });
+
+  const selectAll = document.querySelector('[data-select-all-clients]');
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      document.querySelectorAll('input[name="client_ids"]').forEach((box) => {
+        box.checked = selectAll.checked;
+      });
+    });
+  }
+
+  const bulkAction = document.querySelector('[data-bulk-action]');
+  const bulkDate = document.querySelector('[data-bulk-date-panel]');
+  if (bulkAction && bulkDate) {
+    const updateBulk = () => { bulkDate.hidden = bulkAction.value !== 'set_expiry'; };
+    bulkAction.addEventListener('change', updateBulk);
+    updateBulk();
+  }
+})();
+</script>

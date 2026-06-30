@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block section %}SECURITY / PLACEHOLDER{% endblock %}
+{% block heading %}Страница-заглушка{% endblock %}
+{% block subtitle %}Страница на TCP 443, которая открывается вместо панели{% endblock %}
+{% block content %}
+<div class="editor-mode-tabs" aria-label="Режим редактора">
+  <a class="{{ 'active' if mode == 'simple' else '' }}" href="{{ url_for('placeholder_page', mode='simple') }}">Форма</a>
+  <a class="{{ 'active' if mode == 'html' else '' }}" href="{{ url_for('placeholder_page', mode='html') }}">HTML</a>
+  <a class="json-action" href="{{ url_for('placeholder_json_page') }}">{ } JSON</a>
+</div>
+
+{% if not panel.manage_placeholder %}
+<div class="alert warning">Панель сейчас не управляет заглушкой на TCP 443. Сохранённый HTML останется на сервере, но может не использоваться Nginx.</div>
+{% endif %}
+
+<section class="dashboard-grid">
+  <article class="panel-card">
+    {% if mode == 'html' %}
+    <div class="section-head"><div><h2>Полный HTML</h2><p class="muted">Можно вставить собственный <code>index.html</code> или загрузить готовый файл.</p></div></div>
+    <form method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="html">
+      <label>HTML страницы
+        <textarea name="html_content" rows="24" spellcheck="false" class="json-editor">{{ current_html }}</textarea>
+      </label>
+      <label>Или загрузить index.html
+        <input type="file" name="html_file" accept="text/html,.html">
+      </label>
+      <button class="button primary" type="submit">Сохранить HTML</button>
+    </form>
+    {% else %}
+    <div class="section-head"><div><h2>Простая страница</h2><p class="muted">Панель сама создаст аккуратную нейтральную заглушку.</p></div></div>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="simple">
+      <label>Заголовок<input type="text" name="title" maxlength="120" value="Welcome" required></label>
+      <label>Краткий текст<textarea name="message" rows="4">This web server is running normally.</textarea></label>
+      <label>Название ссылки — необязательно<input type="text" name="site_name" maxlength="120" placeholder="Открыть сайт"></label>
+      <label>Ссылка — необязательно<input type="url" name="link" maxlength="2048" placeholder="https://example.com"></label>
+      <button class="button primary" type="submit">Создать и сохранить</button>
+    </form>
+    {% endif %}
+  </article>
+
+  <article class="panel-card">
+    <h2>Текущее состояние</h2>
+    <div class="key-values one-column">
+      <div><span>Файл</span><strong><code>/var/www/sg-awg-placeholder/index.html</code></strong></div>
+      <div><span>Адрес</span><strong>{{ public_url if panel.manage_placeholder else 'заглушка не управляется панелью' }}</strong></div>
+      <div><span>Nginx</span><strong><a href="{{ url_for('config_page') }}#generated-config">Просмотреть конфигурацию</a></strong></div>
+    </div>
+    <form method="post" onsubmit="return confirm('Восстановить стандартную страницу-заглушку?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="reset">
+      <button class="button danger" type="submit">Восстановить стандартную</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

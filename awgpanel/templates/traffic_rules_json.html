@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Network JSON — SG-AWG-Panel{% endblock %}
+{% block section %}NETWORK / TRAFFIC RULES / JSON{% endblock %}
+{% block heading %}Traffic Rules JSON{% endblock %}
+{% block subtitle %}Полный упорядоченный список пользовательских правил{% endblock %}
+{% block content %}
+<div class="ui-page json-workbench"><section class="ui-card">
+<header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">TRAFFIC-RULES-V1</p><h2>Все правила</h2><p>Проверка выполняет разбор схемы, проверку ссылок и настоящий <code>nft -c -f</code> на временном файле.</p></div><span class="config-state-badge {{ 'editable' if validation_passed else 'readonly' }}">{{ 'ПРОВЕРЕНО' if validation_passed else 'ТРЕБУЕТ ПРОВЕРКИ' }}</span></header>
+<div class="json-warning"><strong>Порядок массива rules имеет значение.</strong><span>Первое совпавшее правило определяет Block или Outbound.</span></div>
+<form method="post" class="json-editor-form" data-json-editor-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="json-editor-label" for="json-config">Traffic Rules JSON</label>
+  <textarea id="json-config" class="json-editor json-editor-tall" name="json_config" spellcheck="false" required data-json-editor-input>{{ network_json }}</textarea>
+  {% include "_json_validation.html" %}
+  <div class="json-editor-actions">
+    <a class="button ghost" href="{{ url_for('network_page', tab='traffic-rules') }}">Назад</a>
+    <button class="button ghost" type="button" data-json-format>Форматировать</button>
+    <button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button>
+    <button class="button primary" id="save-rules-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>Сохранить и применить</button>
+  </div>
+</form>
+</section></div>
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+{% endblock %}

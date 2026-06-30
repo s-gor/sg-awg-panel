@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block section %}DIAGNOSTICS{% endblock %}
+{% block heading %}Diagnostics{% endblock %}
+{% block subtitle %}Состояние компонентов, технические подробности и журналы{% endblock %}
+{% block content %}
+<section class="diagnostics-summary {{ summary_class }}">
+  <div>
+    <p class="eyebrow">ИТОГ ПРОВЕРКИ</p>
+    <h2>{{ summary_title }}</h2>
+    <p>{{ summary_text }}</p>
+  </div>
+  <div class="diagnostics-summary-actions">
+    <a class="button" href="{{ url_for('diagnostics') }}">Обновить</a>
+    <a class="button secondary" href="{{ url_for('diagnostics_report') }}">Отчёт TXT</a>
+    <a class="button secondary json-action" href="{{ url_for('diagnostics_json_report') }}">{ } Отчёт JSON</a>
+  </div>
+</section>
+
+{% if problems %}
+<section class="panel-card diagnostics-problems">
+  <div class="section-head"><div><p class="eyebrow">ТРЕБУЕТ ВНИМАНИЯ</p><h2>Непройденные проверки</h2></div></div>
+  <div class="health-list">
+    {% for item in problems %}<div class="health-item problem"><span>{{ item.name }}</span><strong class="bad">{{ item.value }}</strong></div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="dashboard-grid diagnostics-main-grid">
+  <article class="panel-card">
+    <div class="section-head"><div><p class="eyebrow">ОСНОВНЫЕ ПРОВЕРКИ</p><h2>Состояние компонентов</h2></div></div>
+    <div class="health-list">
+      {% for item in checks %}
+      <div class="health-item {{ 'neutral' if item.neutral else '' }}">
+        <span>{{ item.name }}</span>
+        <strong class="{{ 'neutral' if item.neutral else 'ok' if item.ok else 'bad' }}">{{ item.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel-card">
+    <div class="section-head"><div><p class="eyebrow">СЕТЬ И РЕСУРСЫ</p><h2>Техническая информация</h2></div></div>
+    <div class="key-values one-column">
+      <div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or 'не определён' }}</strong></div>
+      <div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or 'не определён' }}</strong></div>
+      <div><span>Backend</span><strong>127.0.0.1:{{ diagnostics.backend_port }}</strong></div>
+      <div><span>AWG UDP</span><strong>{{ diagnostics.listen_port }}</strong></div>
+      <div><span>Память панели</span><strong>{{ diagnostics.panel_rss_text }}</strong></div>
+      <div><span>Память системы</span><strong>{{ diagnostics.resources.memory_percent }}%</strong></div>
+      <div><span>Load average</span><strong>{{ diagnostics.resources.load1 }} / {{ diagnostics.resources.load5 }} / {{ diagnostics.resources.load15 }}</strong></div>
+      <div><span>Резервных копий</span><strong>{{ diagnostics.backups|length }}</strong></div>
+    </div>
+  </article>
+</section>
+
+<details class="panel-card diagnostics-details">
+  <summary>Все служебные проверки</summary>
+  <div class="health-list diagnostics-expanded-checks">
+    <div class="health-item"><span>Web-панель включена в systemd</span><strong class="{{ 'ok' if diagnostics.panel_enabled else 'bad' }}">{{ 'да' if diagnostics.panel_enabled else 'нет' }}</strong></div>
+    <div class="health-item"><span>AWG Server включён в systemd</span><strong class="{{ 'ok' if diagnostics.awg_enabled else 'bad' }}">{{ 'да' if diagnostics.awg_enabled else 'нет' }}</strong></div>
+    <div class="health-item"><span>Nginx включён в systemd</span><strong class="{{ 'ok' if diagnostics.nginx_enabled else 'bad' }}">{{ 'да' if diagnostics.nginx_enabled else 'нет' }}</strong></div>
+    <div class="health-item"><span>Recovery service включена</span><strong class="{{ 'ok' if diagnostics.recovery_enabled else 'bad' }}">{{ 'да' if diagnostics.recovery_enabled else 'нет' }}</strong></div>
+    <div class="health-item"><span>Policy traffic service включена</span><strong class="{{ 'ok' if diagnostics.traffic_enabled else 'bad' }}">{{ 'да' if diagnostics.traffic_enabled else 'нет' }}</strong></div>
+    <div class="health-item"><span>Рабочий awg0.conf существует</span><strong class="{{ 'ok' if diagnostics.config_exists else 'bad' }}">{{ 'да' if diagnostics.config_exists else 'нет' }}</strong></div>
+    <div class="health-item"><span>Интерфейс AWG существует</span><strong class="{{ 'ok' if diagnostics.interface_present else 'neutral' }}">{{ 'да' if diagnostics.interface_present else 'нет' }}</strong></div>
+    <div class="health-item"><span>Активных Outbound</span><strong class="neutral">{{ diagnostics.get('traffic', {}).get('active_profiles', 0) }}</strong></div>
+    <div class="health-item"><span>Policy rules</span><strong class="neutral">{{ diagnostics.get('traffic', {}).get('policy_rules', 0) }}</strong></div>
+  </div>
+</details>
+
+{% if diagnostics.udp.lines %}<details class="panel-card diagnostics-details"><summary>UDP listener</summary><pre>{{ diagnostics.udp.lines|join('\n') }}</pre></details>{% endif %}
+
+<section class="panel-card diagnostics-logs">
+  <div class="section-head"><div><p class="eyebrow">ЖУРНАЛЫ</p><h2>Служебные сообщения</h2><p class="muted">Все журналы закрыты по умолчанию. Открывайте только нужный.</p></div></div>
+  <details><summary>AmneziaWG</summary><pre class="log-output">{{ diagnostics.server_logs }}</pre></details>
+  <details><summary>Policy traffic</summary><pre class="log-output">{{ diagnostics.traffic_logs }}</pre></details>
+  <details><summary>Web-панель</summary><pre class="log-output">{{ diagnostics.panel_logs }}</pre></details>
+  <details><summary>Nginx</summary><pre class="log-output">{{ diagnostics.nginx_logs }}</pre></details>
+  <details><summary>Recovery после reboot</summary><pre class="log-output">{{ diagnostics.recovery_logs }}</pre></details>
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Network — SG-AWG-Panel{% endblock %}
+{% block section %}NETWORK{% endblock %}
+{% block heading %}Network{% endblock %}
+{% block subtitle %}Traffic Rules и внешние Outbounds в одном разделе{% endblock %}
+{% block heading_actions %}
+<a class="button" href="{{ url_for('traffic_rules_json_page') }}">{ } JSON всех правил</a>
+<a class="button primary" href="{{ url_for('traffic_rule_new_page') }}">＋ Добавить правило</a>
+{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы Network">
+  <a class="active" href="{{ url_for('network_page', tab='traffic-rules') }}">Traffic Rules</a>
+  <a class="" href="{{ url_for('network_page', tab='outbounds') }}">Outbounds</a>
+</nav>
+<section class="beta9-summary-grid beta9-summary-grid-two">
+  <article class="beta9-summary-card"><span>Всего правил</span><strong>{{ policy_rules|length }}</strong><small>Проверяются сверху вниз</small></article>
+  <article class="beta9-summary-card"><span>Активные правила</span><strong class="beta9-good">{{ policy_rules|selectattr('enabled')|list|length }}</strong><small>Отключённые правила не применяются</small></article>
+</section>
+
+<div class="beta9-note">Если ни одно правило не совпало, трафик выходит в интернет через текущий AWG Server.</div>
+
+<section class="beta9-panel flush">
+  <div class="beta9-panel-heading" style="padding:22px 22px 0"><div><h2>Порядок применения</h2><p>Срабатывает первое подходящее правило. Доступные действия: <strong>Block и Outbound</strong>.</p></div><span class="ui-counter">{{ policy_rules|length }}</span></div>
+  {% if policy_rules %}
+  <div class="traffic-rule-list beta9-rule-list">
+    {% for rule in policy_rules %}
+    <article class="traffic-rule-card {{ '' if rule.enabled else 'disabled' }}">
+      <div class="traffic-priority"><strong>{{ rule.priority }}</strong><div><form method="post" action="{{ url_for('traffic_rule_move_action', rule_id=rule.id, direction='up') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button title="Выше" type="submit" {{ 'disabled' if loop.first else '' }}>↑</button></form><form method="post" action="{{ url_for('traffic_rule_move_action', rule_id=rule.id, direction='down') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button title="Ниже" type="submit" {{ 'disabled' if loop.last else '' }}>↓</button></form></div></div>
+      <div class="traffic-rule-main"><div class="traffic-rule-title"><strong>{{ rule.target_summary }}</strong><span class="pill {{ 'enabled' if rule.enabled else '' }}">{{ 'Включено' if rule.enabled else 'Отключено' }}</span></div><div class="traffic-rule-tags"><span>{{ rule.target_kind }}</span><span>{{ rule.client_summary }}</span>{% if not rule.simple_editor %}<span>JSON rule</span>{% endif %}</div></div>
+      <div class="traffic-rule-action">{% if rule.action_mode == 'outbound' %}<strong class="route-tag outbound">Outbound: {{ rule.outbound_name or 'профиль' }}</strong>{% else %}<strong class="route-tag blocked">Block</strong>{% endif %}</div>
+      <div class="traffic-rule-actions">
+        {% if rule.simple_editor %}<a class="button small" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='form') }}">Изменить</a>{% endif %}
+        <a class="button small" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='json') }}">{ } JSON</a>
+        <form method="post" action="{{ url_for('traffic_rule_toggle_action', rule_id=rule.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if rule.enabled else 'Включить' }}</button></form>
+        <form method="post" action="{{ url_for('traffic_rule_delete_action', rule_id=rule.id) }}" onsubmit="return confirm('Удалить это правило?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit">Удалить</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="beta9-empty"><h3>Правил пока нет</h3><p>Весь трафик выходит через текущий AWG Server. Добавьте правило только для блокировки назначения или использования Outbound.</p><a class="button primary" href="{{ url_for('traffic_rule_new_page') }}">Создать первое правило</a></div>
+  {% endif %}
+</section>
+{% endblock %}

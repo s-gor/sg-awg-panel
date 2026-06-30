@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}JSON Outbound — SG-AWG-Panel{% endblock %}
+{% block section %}OUTBOUNDS / JSON{% endblock %}
+{% block heading %}{{ 'JSON Outbound ' ~ outbound.name if outbound else 'Новый Outbound из JSON' }}{% endblock %}
+{% block subtitle %}Объект Interface и Peer управляемого выходного туннеля AmneziaWG{% endblock %}
+{% block content %}
+<div class="ui-page json-workbench"><section class="ui-card">
+  <header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">РАСШИРЕННЫЙ РЕДАКТОР</p><h2>{{ outbound.name if outbound else 'AmneziaWG Outbound' }}</h2><p>JSON преобразуется в безопасный конфиг с одним Interface и одним Peer, проверяется через <code>awg-quick strip</code> и применяется с откатом.</p></div><span class="config-state-badge {{ 'editable' if validation_passed else 'readonly' }}">{{ 'ПРОВЕРЕНО' if validation_passed else 'ТРЕБУЕТ ПРОВЕРКИ' }}</span></header>
+  <div class="json-warning"><strong>Команды оболочки запрещены.</strong><span>PostUp, PostDown, PreUp, PreDown и SaveConfig не принимаются. Для существующего профиля <code>$KEEP</code> сохраняет закрытые ключи.</span></div>
+  <div class="json-info-grid"><div><strong>_sgAwgPanel</strong><span>Название и состояние Outbound.</span></div><div><strong>interface</strong><span>Address, PrivateKey, MTU и параметры AWG 2.0.</span></div><div><strong>peer</strong><span>PublicKey, Endpoint, AllowedIPs и Keepalive.</span></div></div>
+  <form method="post" class="json-editor-form" data-json-editor-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="json-editor-label" for="json_config">Объект Outbound</label>
+    <textarea id="json_config" name="json_config" class="json-editor json-editor-tall" spellcheck="false" autocomplete="off" data-json-editor-input>{{ outbound_json }}</textarea>
+    {% include "_json_validation.html" %}
+    <div class="json-editor-actions">
+      <a class="button secondary" href="{{ url_for('outbound_edit_page', outbound_id=outbound.id) if outbound else url_for('outbounds_page') }}">{{ 'Открыть форму' if outbound else 'Отмена' }}</a>
+      <button class="button ghost" type="button" data-format-json>Форматировать</button>
+      <button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button>
+      <button class="button primary" id="save-outbound-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>{{ 'Сохранить и применить JSON' if outbound else 'Создать Outbound' }}</button>
+    </div>
+  </form>
+</section></div>
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+{% endblock %}

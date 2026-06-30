@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} — SG-AWG-Panel{% endblock %}
+{% block section %}{{ section }}{% endblock %}
+{% block heading %}{{ heading }}{% endblock %}
+{% block subtitle %}{{ subtitle }}{% endblock %}
+{% block content %}
+<div class="ui-page json-workbench">
+  <div class="editor-mode-tabs" aria-label="Режим редактора">
+    <a href="{{ back_url }}">Форма</a>
+    <a class="active json-action" href="{{ request.path }}">{ } JSON</a>
+  </div>
+  <section class="ui-card">
+    <header class="ui-card-heading ui-card-heading-row">
+      <div><p class="panel-kicker">{{ format_name }}</p><h2>{{ object_title }}</h2><p>{{ description }}</p></div>
+      <a class="button ghost" href="{{ back_url }}">Открыть форму</a>
+    </header>
+    <form method="post" class="json-editor-form" data-json-editor-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="json-editor-label" for="json-config">JSON</label>
+      <textarea id="json-config" class="json-editor json-editor-tall" name="json_config" spellcheck="false" required data-json-editor-input>{{ json_config }}</textarea>
+      {% include "_json_validation.html" %}
+      <div class="json-editor-actions">
+        <button class="button ghost" type="button" data-json-format>Форматировать</button>
+        <button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button>
+        <button class="button primary" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>Сохранить и применить</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+{% endblock %}

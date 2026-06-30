@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}JSON AWG Server — SG-AWG-Panel{% endblock %}
+{% block section %}AWG SERVER / JSON{% endblock %}
+{% block heading %}JSON AWG Server{% endblock %}
+{% block subtitle %}Те же параметры сервера и маскировки, которые редактируются обычной формой{% endblock %}
+{% block content %}
+<div class="ui-page json-workbench"><section class="ui-card">
+  <header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">РАСШИРЕННЫЙ РЕДАКТОР</p><h2>AWG Server</h2><p>После сохранения JSON проходит ту же проверку, резервное копирование и запуск AmneziaWG, что и обычная форма.</p></div><span class="json-mode-badge">{ } JSON</span></header>
+  <div class="json-warning"><strong>Закрытый ключ не выводится в браузер.</strong><span>Значение <code>_sgAwgPanel.privateKey: "$KEEP"</code> сохраняет действующий ключ. Изменить его через JSON нельзя.</span></div>
+  <div class="json-info-grid"><div><strong>Одна конфигурация</strong><span>Изменения сразу появятся в форме AWG Server.</span></div><div><strong>Network safety</strong><span>Для смены сети установите <code>confirmNetworkChange</code> в true.</span></div><div><strong>Rollback</strong><span>При ошибке рабочая база и конфигурация восстанавливаются.</span></div></div>
+  <form method="post" class="json-editor-form" data-json-editor-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="json-editor-label" for="json_config">Конфигурация AWG Server</label>
+    <textarea id="json_config" name="json_config" class="json-editor json-editor-tall" spellcheck="false" autocomplete="off" data-json-editor-input>{{ server_json }}</textarea>
+    {% include "_json_validation.html" %}
+    <div class="json-editor-actions">
+      <a class="button secondary" href="{{ url_for('server_page') }}">Открыть форму</a>
+      <button class="button ghost" type="button" data-format-json>Форматировать</button>
+      <button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button>
+      <button class="button primary" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>Сохранить и применить JSON</button>
+    </div>
+  </form>
+</section></div>
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+{% endblock %}

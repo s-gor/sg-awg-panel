@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}AWG Server — JSON — SG-AWG-Panel{% endblock %}
+{% block section %}AWG SERVER / JSON{% endblock %}
+{% block heading %}AWG Server{% endblock %}
+{% block subtitle %}Полный редактируемый JSON и единый центр просмотра конфигураций{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы AWG Server">
+  <a href="{{ url_for('server_page') }}">Server</a>
+  <a class="active" href="{{ url_for('config_page') }}">JSON</a>
+</nav>
+
+<div class="json-hub-tabs" role="tablist" aria-label="JSON">
+  <button class="active" type="button" data-json-hub-tab="full" aria-selected="true">Full JSON <small>Редактирование всей системы</small></button>
+  <button type="button" data-json-hub-tab="generated" aria-selected="false">Generated Config <small>JSON разделов и файлы Linux</small></button>
+</div>
+
+<section class="ui-card json-hub-panel active" data-json-hub-panel="full">
+  <header class="ui-card-heading ui-card-heading-row config-panel-heading">
+    <div>
+      <p class="panel-kicker">FULL JSON</p>
+      <h2>Полная конфигурация</h2>
+      <p>AWG Server, Clients, Network, Security, Maintenance и публичный доступ в одном документе.</p>
+    </div>
+    <span class="config-state-badge editable">РЕДАКТИРУЕМЫЙ</span>
+  </header>
+
+  <div class="config-current-workspace {{ 'is-editing' if editor_active else '' }}" data-config-workspace>
+    <div class="config-view-mode" data-config-view-mode>
+      <div class="config-mode-bar">
+        <div class="config-mode-status"><span class="config-state-dot"></span><div><strong>Текущее сохранённое состояние</strong><span>Это единый источник настроек, которыми управляет панель.</span></div></div>
+        <div class="config-mode-actions"><a class="button ghost" href="{{ url_for('config_download') }}">Скачать JSON</a><button class="button primary" type="button" data-start-config-edit>Редактировать JSON</button></div>
+      </div>
+      <pre class="config-json-view">{{ current_json }}</pre>
+    </div>
+
+    <div class="config-edit-mode" data-config-edit-mode>
+      <div class="config-edit-notice" data-validation-state="{{ 'passed' if validation_passed else 'required' }}">
+        <div><strong id="config-validation-title">{{ 'Проверка выполнена' if validation_passed else 'Требуется проверка' }}</strong><span id="config-validation-text">{{ 'Текущий текст прошёл системный dry-run и готов к применению.' if validation_passed else 'Сначала нажмите «Проверить JSON». После любого изменения проверка сбрасывается.' }}</span></div>
+        <span class="config-pending-badge {{ 'validated' if validation_passed else '' }}" id="config-validation-badge">{{ 'ПРОВЕРЕНО' if validation_passed else 'НЕ ПРОВЕРЕНО' }}</span>
+      </div>
+      <div class="json-warning config-secret-warning"><strong>Секреты защищены.</strong><span><code>$KEEP</code> сохраняет действующие ключи. Неизвестные поля, неверные ссылки и конфигурации, которые не проходят nftables/awg-quick dry-run, будут отклонены.</span></div>
+      <form method="post" class="json-editor-form config-json-form" id="full-json-form" data-json-editor-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="config-editor-toolbar">
+          <div class="config-toolbar-group"><button class="button ghost" type="button" data-format-json>Форматировать</button><button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button><a class="button secondary" href="{{ url_for('config_page') }}#full-json">Синхронизировать</a></div>
+          <div class="config-toolbar-group config-toolbar-primary"><button class="button ghost" type="button" data-cancel-config-edit>Отменить</button><a class="button ghost" href="{{ url_for('config_download') }}">Скачать</a><button class="button primary" id="save-full-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }} onclick="return confirm('Применить проверенный Full JSON? Перед изменениями будет создана резервная копия.')">Сохранить и применить</button></div>
+        </div>
+        <label class="json-editor-label" for="json_config">Full JSON</label>
+        <textarea id="json_config" name="json_config" class="json-editor json-editor-tall" spellcheck="false" autocomplete="off" data-json-editor-input>{{ current_json }}</textarea>
+        {% include "_json_validation.html" %}
+        <p class="config-editor-footnote">Проверка ничего не применяет: разбирает JSON, проверяет схему, ссылки, IP/CIDR, Outbounds, генерирует временные конфигурации и запускает системный dry-run.</p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="ui-card json-hub-panel generated-config-card" data-json-hub-panel="generated" hidden>
+  <header class="ui-card-heading ui-card-heading-row config-panel-heading">
+    <div><p class="panel-kicker">CONFIG OVERVIEW</p><h2>Generated Config</h2><p>Слева — логические JSON разделов. Справа — фактические файлы, созданные для Linux. Всё только для чтения.</p></div>
+    <span class="config-state-badge readonly">ТОЛЬКО ЧТЕНИЕ</span>
+  </header>
+  <div class="generated-config-hub">
+    <aside class="generated-config-index">
+      <div class="generated-config-group"><h3>Section JSON</h3><p>Текущие фрагменты конфигурации.</p>
+        {% for key, item in section_json.items() %}<button type="button" class="generated-config-item {{ 'active' if loop.first else '' }}" data-config-view="section-{{ key }}"><strong>{{ item.title }}</strong><small>{{ item.filename }}</small></button>{% endfor %}
+      </div>
+      <div class="generated-config-group"><h3>Generated system config</h3><p>Файлы, которые используют службы Linux.</p>
+        {% for key, item in generated.items() %}<button type="button" class="generated-config-item" data-config-view="system-{{ key }}"><strong>{{ item.title }}</strong><small>{{ item.filename }}</small></button>{% endfor %}
+      </div>
+    </aside>
+    <div class="generated-config-viewer">
+      {% for key, item in section_json.items() %}
+      <article class="generated-config-pane {{ 'active' if loop.first else '' }}" data-config-content="section-{{ key }}">
+        <header><div><span>SECTION JSON</span><h3>{{ item.title }}</h3><code>{{ item.filename }}</code></div><div class="beta9-inline-actions"><a class="button small ghost" href="{{ item.edit_url }}">Перейти к разделу</a><button class="button small ghost" type="button" data-copy-target="section-json-{{ key }}">Копировать</button><a class="button small secondary" href="{{ url_for('section_json_download', kind=key) }}">Скачать</a></div></header>
+        <pre id="section-json-{{ key }}">{{ item.content }}</pre>
+      </article>
+      {% endfor %}
+      {% for key, item in generated.items() %}
+      <article class="generated-config-pane" data-config-content="system-{{ key }}">
+        <header><div><span>GENERATED SYSTEM CONFIG</span><h3>{{ item.title }}</h3><code>{{ item.filename }}</code></div><div class="beta9-inline-actions"><button class="button small ghost" type="button" data-copy-target="system-config-{{ key }}">Копировать</button><a class="button small secondary" href="{{ url_for('generated_config_download', kind=key) }}">Скачать</a></div></header>
+        <pre id="system-config-{{ key }}">{{ item.content or 'Конфигурация ещё не создана.' }}</pre>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% include "json_format_script.html" %}
+{% include "_json_editor_script.html" %}
+<script>
+(() => {
+  const hubTabs = document.querySelectorAll('[data-json-hub-tab]');
+  const hubPanels = document.querySelectorAll('[data-json-hub-panel]');
+  const activateHub = (key, update=true) => {
+    hubTabs.forEach(tab => { const active=tab.dataset.jsonHubTab===key; tab.classList.toggle('active',active); tab.setAttribute('aria-selected',active?'true':'false'); });
+    hubPanels.forEach(panel => { const active=panel.dataset.jsonHubPanel===key; panel.classList.toggle('active',active); panel.hidden=!active; });
+    if (update) history.replaceState(null,'',key==='generated'?'#generated-config':'#full-json');
+  };
+  hubTabs.forEach(tab => tab.addEventListener('click',()=>activateHub(tab.dataset.jsonHubTab)));
+  if (location.hash==='#generated-config') activateHub('generated',false);
+
+  const workspace=document.querySelector('[data-config-workspace]');
+  const editor=document.getElementById('json_config');
+  const initial=editor?.value||'';
+  document.querySelector('[data-start-config-edit]')?.addEventListener('click',()=>{workspace?.classList.add('is-editing');editor?.focus();});
+  document.querySelector('[data-cancel-config-edit]')?.addEventListener('click',()=>{if(editor&&editor.value!==initial&&!confirm('Отбросить несохранённые изменения?'))return;if(editor)editor.value=initial;workspace?.classList.remove('is-editing');});
+  const save=document.getElementById('save-full-json');
+  const title=document.getElementById('config-validation-title');
+  const text=document.getElementById('config-validation-text');
+  const badge=document.getElementById('config-validation-badge');
+  editor?.addEventListener('input',()=>{if(save)save.disabled=true;if(title)title.textContent='Требуется повторная проверка';if(text)text.textContent='Текст изменён после последней проверки.';if(badge){badge.textContent='НЕ ПРОВЕРЕНО';badge.classList.remove('validated');}});
+
+  const nav=document.querySelectorAll('[data-config-view]');
+  const panes=document.querySelectorAll('[data-config-content]');
+  nav.forEach(button=>button.addEventListener('click',()=>{const key=button.dataset.configView;nav.forEach(x=>x.classList.toggle('active',x===button));panes.forEach(x=>x.classList.toggle('active',x.dataset.configContent===key));}));
+  const copy=async text=>{if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(text);const a=document.createElement('textarea');a.value=text;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();};
+  document.querySelectorAll('[data-copy-target]').forEach(button=>button.addEventListener('click',async()=>{const el=document.getElementById(button.dataset.copyTarget);if(!el)return;const old=button.textContent;await copy(el.textContent);button.textContent='Скопировано';setTimeout(()=>button.textContent=old,1200);}));
+})();
+</script>
+{% endblock %}

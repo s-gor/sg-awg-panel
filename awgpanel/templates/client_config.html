@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Конфигурация клиента — SG-AWG-Panel{% endblock %}
+{% block body_class %}client-config-page{% endblock %}
+{% block section %}CLIENTS / CONFIG{% endblock %}
+{% block heading %}{{ client.name }}{% endblock %}
+{% block subtitle %}Файл .conf или полный текст конфигурации AmneziaWG для одного устройства{% endblock %}
+{% block content %}
+<div class="ui-page ui-page-wide client-config-simple-page">
+  <nav class="client-tabs" aria-label="Разделы клиента">
+    <a href="{{ url_for('client_edit', client_id=client.id) }}">Основное</a>
+    <a class="active" href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>
+    <a href="{{ url_for('traffic_rules_page', tab='rules') }}">Traffic Rules</a>
+    <a href="{{ url_for('client_edit', client_id=client.id) }}#statistics">Статистика</a>
+    <a href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>
+  </nav>
+
+  <div class="client-config-status-line"><span class="pill enabled"><i></i>Доступна</span><span>{{ client.expires_at_text }}</span>{% if client.expires_at_iso %}<time data-utc="{{ client.expires_at_iso }}">{{ client.expires_at[:16] }} UTC</time>{% endif %}</div>
+
+  <section class="client-import-grid">
+    <article class="ui-card client-import-card">
+      <header class="ui-card-heading"><div><p class="panel-kicker">СПОСОБ 1</p><h2>Скачать файл .conf</h2><p>Импортируйте файл в приложение AmneziaWG через добавление конфигурации из файла.</p></div></header>
+      <div class="client-import-card-body">
+        <a class="button primary wide" href="{{ url_for('client_download', client_id=client.id) }}">Скачать .conf</a>
+        <p class="field-note">Файл содержит приватный ключ клиента. Передавайте его только владельцу этого устройства.</p>
+      </div>
+    </article>
+
+    <article class="ui-card client-import-card">
+      <header class="ui-card-heading"><div><p class="panel-kicker">СПОСОБ 2</p><h2>Скопировать конфигурацию</h2><p>Скопируйте весь текст и вставьте его целиком в приложение AmneziaWG.</p></div></header>
+      <div class="client-import-card-body">
+        <button class="button primary wide" type="button" data-copy-config>Копировать конфигурацию</button>
+        <p class="field-note">Это то же содержимое, что находится внутри файла <code>.conf</code>.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="ui-card client-share-card">
+    <header class="ui-card-heading ui-card-heading-row">
+      <div>
+        <p class="panel-kicker">ПЕРЕДАТЬ ВЛАДЕЛЬЦУ УСТРОЙСТВА</p>
+        <h2>Защищённая ссылка</h2>
+        <p>Ссылка открывает только текущую конфигурацию этого клиента без входа в панель.</p>
+      </div>
+      <a class="button ghost small" href="{{ url_for('access_json_page') }}">{ } JSON доступа</a>
+    </header>
+    {% if not panel.access_enabled %}
+      <div class="ui-warning-note"><span>!</span><p><strong>Выдача по ссылкам отключена глобально.</strong> Включите её в разделе Security.</p></div>
+      <div class="ui-actions"><a class="button ghost" href="{{ url_for('security_page') }}#config-links">Открыть Security</a></div>
+    {% else %}
+      {% if panel.public_scheme != 'https' %}<div class="ui-warning-note"><span>!</span><p><strong>Ссылка работает по HTTP.</strong> Конфигурация содержит приватный ключ. Для постоянной передачи включите HTTPS в Security.</p></div>{% endif %}
+      <div class="client-share-status">
+        <span class="pill {{ 'enabled' if client.access_enabled else 'disabled' }}"><i></i>{{ 'Ссылка включена' if client.access_enabled else 'Ссылка отключена' }}</span>
+        <span>Открытий: <strong>{{ client.access_downloads }}</strong></span>
+        <span>Последнее: <strong>{{ client.access_last_at[:16]|replace('T',' ') ~ ' UTC' if client.access_last_at else 'ещё не открывалась' }}</strong></span>
+      </div>
+      <div class="config-url-cell client-share-url">
+        <input id="client-access-url" type="text" readonly value="{{ client.access_url }}" {{ 'disabled' if not client.access_enabled else '' }}>
+        <button class="button primary" type="button" data-copy-access-url {{ 'disabled' if not client.access_enabled else '' }}>Скопировать ссылку</button>
+        {% if client.access_enabled %}<a class="button ghost" href="{{ client.access_url }}" target="_blank" rel="noopener">Открыть</a>{% endif %}
+      </div>
+      <div class="ui-actions">
+        <form method="post" action="{{ url_for('access_toggle', client_id=client.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button secondary" type="submit">{{ 'Отключить ссылку' if client.access_enabled else 'Включить ссылку' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('access_regenerate', client_id=client.id) }}" onsubmit="return confirm('Старая ссылка перестанет работать. Создать новую?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button danger" type="submit">Создать новую ссылку</button>
+        </form>
+      </div>
+    {% endif %}
+    <p class="field-note">Ссылка и конфигурация содержат приватный ключ. Передавайте их только владельцу этого устройства.</p>
+  </section>
+
+  <section class="ui-card config-text-card">
+    <header class="ui-card-heading ui-card-heading-row">
+      <div><p class="panel-kicker">ТЕКУЩАЯ КОНФИГУРАЦИЯ</p><h2>Полный текст</h2><p>Откройте только при необходимости проверки или ручного копирования.</p></div>
+      <form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" onsubmit="return confirm('Пересоздать ключи? Старый файл и подключение перестанут работать.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button danger" type="submit">Пересоздать ключи</button>
+      </form>
+    </header>
+    <details class="client-config-details">
+      <summary>Показать конфигурацию</summary>
+      <div class="config-text-body">
+        <textarea id="client-config-text" class="config-box" rows="22" readonly>{{ config_text }}</textarea>
+        <div class="ui-actions">
+          <button class="button secondary" type="button" data-copy-config>Копировать конфигурацию</button>
+          <a class="button ghost" href="{{ url_for('clients_page') }}">Назад к клиентам</a>
+        </div>
+      </div>
+    </details>
+  </section>
+</div>
+<script>
+(() => {
+  const value = {{ config_text|tojson }};
+  document.querySelectorAll('[data-copy-config]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const original = button.textContent;
+      try {
+        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+        else {
+          const area = document.getElementById('client-config-text');
+          const details = area.closest('details');
+          if (details) details.open = true;
+          area.focus(); area.select(); document.execCommand('copy');
+        }
+        button.textContent = 'Скопировано';
+      } catch (error) {
+        const area = document.getElementById('client-config-text');
+        const details = area.closest('details');
+        if (details) details.open = true;
+        area.focus(); area.select();
+        button.textContent = 'Нажмите Ctrl+C';
+      }
+      setTimeout(() => { button.textContent = original; }, 2500);
+    });
+  });
+  const accessButton = document.querySelector('[data-copy-access-url]');
+  if (accessButton) {
+    accessButton.addEventListener('click', async () => {
+      const field = document.getElementById('client-access-url');
+      const original = accessButton.textContent;
+      try {
+        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(field.value);
+        else { field.focus(); field.select(); document.execCommand('copy'); }
+        accessButton.textContent = 'Скопировано';
+      } catch (error) {
+        field.focus(); field.select();
+        accessButton.textContent = 'Нажмите Ctrl+C';
+      }
+      setTimeout(() => { accessButton.textContent = original; }, 2500);
+    });
+  }
+})();
+</script>
+{% include "client_expiry_script.html" %}
+{% endblock %}

@@ -1,0 +1,20 @@
+<input type="hidden" name="validation_token" value="{{ validation_token or '' }}" data-json-validation-token>
+<div class="json-validation-result {% if validation_error %}error{% elif validation_passed %}success{% else %}pending{% endif %}" data-json-validation-result role="status" aria-live="polite">
+  {% if validation_error %}
+    <strong>JSON не прошёл проверку</strong>
+    {% if validation_error.get('line') or validation_error.get('column') or validation_error.get('path') %}
+      <div class="json-validation-location">
+        {% if validation_error.get('line') %}строка {{ validation_error.get('line') }}{% endif %}
+        {% if validation_error.get('column') %}{% if validation_error.get('line') %} · {% endif %}столбец {{ validation_error.get('column') }}{% endif %}
+        {% if validation_error.get('path') %}{% if validation_error.get('line') or validation_error.get('column') %} · {% endif %}путь {{ validation_error.get('path') }}{% endif %}
+      </div>
+    {% endif %}
+    <p>{{ validation_error.get('reason') or validation_error.get('message') or 'Проверка завершилась ошибкой.' }}</p>
+  {% elif validation_passed %}
+    <strong>JSON прошёл проверку</strong>
+    <p>{{ validation_message or 'Проверен именно текущий текст. Теперь его можно сохранить и применить.' }}</p>
+  {% else %}
+    <strong>Требуется проверка</strong>
+    <p>Сначала нажмите «Проверить JSON». Сохранение заблокировано до успешной проверки именно текущего текста.</p>
+  {% endif %}
+</div>

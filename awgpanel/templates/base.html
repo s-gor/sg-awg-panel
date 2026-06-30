@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d131b">
+  <title>{% block title %}SG-AWG-Panel{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_version }}">
+</head>
+{% if session.get('authenticated') %}
+<body class="app-body beta9-ui {% block body_class %}{% endblock %}">
+<div class="app-grid" aria-hidden="true"></div>
+<div class="shell" id="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" role="img" aria-label="SG"><path d="M24 3 42 13v22L24 45 6 35V13L24 3Z"/><text x="24" y="29" text-anchor="middle">SG</text></svg>
+      </div>
+      <div class="brand-copy"><strong>SG-AWG-Panel</strong><small>v{{ panel_version }}</small></div>
+    </div>
+
+    <nav class="main-nav" aria-label="Основная навигация">
+      <a href="{{ url_for('system_page') }}" class="{{ 'active' if request.endpoint in ('system_page', 'diagnostics', 'system_resources_json') else '' }}">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4M7 8h3M7 12h6"/></svg><span><b>System</b><small>Ресурсы и состояние</small></span>
+      </a>
+      <a href="{{ url_for('clients_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('client_') or request.endpoint == 'clients_page') else '' }}">
+        <svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 20v-2a4 4 0 0 0-3-3.87"/></svg><span><b>Clients</b><small>Клиенты и подключения</small></span>
+      </a>
+      <a href="{{ url_for('server_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('server_') or request.endpoint.startswith('config') or request.endpoint == 'generated_config_download') else '' }}">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg><span><b>AWG Server</b><small>Сервер и конфигурация</small></span>
+      </a>
+      <a href="{{ url_for('network_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint == 'network_page' or request.endpoint.startswith('traffic_') or request.endpoint.startswith('outbound')) else '' }}">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 6h8M7.5 7.5l3.3 8M16.5 7.5l-3.3 8"/></svg><span><b>Network</b><small>Правила и Outbounds</small></span>
+      </a>
+      <a href="{{ url_for('security_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('security') or request.endpoint.startswith('placeholder')) else '' }}">
+        <svg viewBox="0 0 24 24"><path d="M12 2 20 5v6c0 5.2-3.4 9.2-8 11-4.6-1.8-8-5.8-8-11V5l8-3Z"/><path d="M9 12l2 2 4-5"/></svg><span><b>Security</b><small>Доступ и защита</small></span>
+      </a>
+      <a href="{{ url_for('maintenance_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint == 'maintenance_page' or request.endpoint.startswith('backup') or request.endpoint.startswith('updates') or request.endpoint.startswith('settings_update')) else '' }}">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/><ellipse cx="9" cy="7" rx="4" ry="1.6"/><path d="M5 7v4c0 .9 1.8 1.6 4 1.6"/></svg><span><b>Maintenance</b><small>Копии и обновления</small></span>
+      </a>
+    </nav>
+
+    <div class="sidebar-spacer"></div>
+    <button class="sidebar-collapse" id="sidebar-collapse" type="button" aria-label="Свернуть меню">← <span>Свернуть меню</span></button>
+    <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="logout-button" type="submit"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><span>Выйти</span></button>
+    </form>
+  </aside>
+
+  <div class="workspace">
+    <header class="global-topbar">
+      <button class="mobile-menu-button" id="mobile-menu" type="button" aria-label="Открыть меню">☰</button>
+      <div class="global-topbar-spacer"></div>
+      {% set gs = global_system_status|default({'class':'success','label':'СИСТЕМА В НОРМЕ','href':url_for('system_page', tab='logs-diagnostics')}) %}
+      <a class="system-pill {{ gs.class }}" href="{{ gs.href }}" title="Открыть System → Logs & Diagnostics"><span class="system-pill-dot"></span><strong>{{ gs.label }}</strong></a>
+      <span class="account-chip">admin</span>
+    </header>
+
+    <main class="content">
+      <header class="page-header">
+        <div><p class="eyebrow">SG-AWG-PANEL / {% block section %}CONTROL{% endblock %}</p><h1>{% block heading %}Панель управления{% endblock %}</h1><p class="page-subtitle">{% block subtitle %}Управление сервером AmneziaWG 2.0{% endblock %}</p></div>
+        <div class="page-heading-actions">{% block heading_actions %}{% endblock %}</div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-stack" aria-live="polite">{% for category, message in messages %}<div class="alert {{ category }} flash-toast"><span>{{ message }}</span><button type="button" aria-label="Закрыть" onclick="this.parentElement.remove()">×</button></div>{% endfor %}</div>{% endif %}
+      {% endwith %}
+
+      <div class="page-stack">{% block content %}{% endblock %}</div>
+      <footer class="app-footer"><span>© 2026 SG-AWG-Panel</span><span>v{{ panel_version }} · SQLite · AmneziaWG 2.0</span></footer>
+    </main>
+  </div>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<script>
+(() => {
+  const body = document.body;
+  const sidebar = document.getElementById('sidebar');
+  const collapse = document.getElementById('sidebar-collapse');
+  const mobile = document.getElementById('mobile-menu');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (localStorage.getItem('sg-awg-sidebar') === 'collapsed') body.classList.add('sidebar-collapsed');
+  collapse?.addEventListener('click', () => {
+    body.classList.toggle('sidebar-collapsed');
+    localStorage.setItem('sg-awg-sidebar', body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded');
+  });
+  const closeMobile = () => { sidebar?.classList.remove('mobile-open'); overlay?.classList.remove('show'); };
+  mobile?.addEventListener('click', () => { sidebar?.classList.toggle('mobile-open'); overlay?.classList.toggle('show'); });
+  overlay?.addEventListener('click', closeMobile);
+  document.querySelectorAll('.main-nav a').forEach(a => a.addEventListener('click', closeMobile));
+})();
+</script>
+</body>
+{% else %}
+<body class="login-body">
+<div class="login-grid"></div><div class="login-glow login-glow-one"></div><div class="login-glow login-glow-two"></div>
+{% block login_content %}{% endblock %}
+</body>
+{% endif %}
+</html>

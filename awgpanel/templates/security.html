@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Security — SG-AWG-Panel{% endblock %}
+{% block section %}SECURITY{% endblock %}
+{% block heading %}Security{% endblock %}
+{% block subtitle %}Доступ к панели, пароль, IP allowlist, сессии и журнал входов{% endblock %}
+{% block heading_actions %}<a class="button" href="{{ url_for('security_json_page') }}">{ } JSON</a>{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы Security">
+  <a class="{{ 'active' if active_tab == 'access' else '' }}" href="{{ url_for('security_page', tab='access') }}">Доступ к панели</a>
+  <a class="{{ 'active' if active_tab == 'credentials' else '' }}" href="{{ url_for('security_page', tab='credentials') }}">Пароль и IP</a>
+  <a class="{{ 'active' if active_tab == 'sessions' else '' }}" href="{{ url_for('security_page', tab='sessions') }}">Сессии</a>
+  <a class="{{ 'active' if active_tab == 'events' else '' }}" href="{{ url_for('security_page', tab='events') }}">Журнал входов</a>
+</nav>
+
+{% if active_tab == 'access' %}
+<div class="beta9-security-layout">
+  <section class="beta9-panel">
+    <div class="beta9-panel-heading"><div><h2>Публичный доступ</h2><p>Backend всегда остаётся на <code>127.0.0.1:18080</code>. Nginx публикует панель на выбранном динамическом TCP-порту.</p></div></div>
+    <form method="post" action="{{ url_for('security_access_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Режим
+        <select name="public_scheme" id="public-scheme">
+          <option value="http" {{ 'selected' if panel.public_scheme == 'http' else '' }}>HTTP — первоначальная проверка</option>
+          <option value="https" {{ 'selected' if panel.public_scheme == 'https' else '' }}>HTTPS + Let's Encrypt</option>
+        </select>
+      </label>
+      <label>Домен панели<input type="text" name="public_host" value="{{ panel.public_host }}" placeholder="awg.example.com"></label>
+      <label>Публичный TCP-порт панели<input type="number" name="public_port" min="49152" max="65535" value="{{ panel.public_port }}" required></label>
+      <p class="field-note">Допустимый диапазон: <code>49152–65535</code>. Рекомендуемое значение: <code>62443</code>.</p>
+      <label class="checkbox-row"><input type="checkbox" name="manage_placeholder" value="1" {{ 'checked' if panel.manage_placeholder else '' }}><span>Управлять заглушкой на HTTPS 443 и выпуском сертификата</span></label>
+      <p class="field-note">На отдельном сервере оставьте включённым. Выключайте только если TCP 443 уже обслуживается другим Nginx-проектом.</p>
+      <button class="button primary" type="submit" onclick="return confirm('Применить новый домен, режим или порт панели? Новый TCP-порт должен быть заранее открыт в Security Group.')">Сохранить и применить</button>
+    </form>
+  </section>
+  <aside class="beta9-card-stack">
+    <section class="beta9-panel"><div class="beta9-panel-heading"><div><h2>Текущее состояние</h2><p>Фактический адрес и режим доступа.</p></div></div><div class="beta9-kv-list">
+      <div><span>Публичный URL</span><strong>{{ public_url }}</strong></div>
+      <div><span>HTTPS</span><strong>{{ 'Включён' if panel.https_enabled else 'Выключен' }}</strong></div>
+      <div><span>Публичный порт</span><strong>TCP {{ panel.public_port }}</strong></div>
+      <div><span>Заглушка 443</span><strong>{{ 'Управляется панелью' if panel.manage_placeholder else 'Внешняя / отключена' }}</strong></div>
+    </div></section>
+    <div class="beta9-note">Перед сменой порта заранее откройте новый TCP-порт в AWS Security Group. Старый URL перестанет отвечать после успешного применения.</div>
+  </aside>
+</div>
+
+<details class="beta9-panel beta9-technical-details">
+  <summary>Технические параметры веб-сервера</summary>
+  <div class="beta9-technical-grid">
+    <div><span>Backend</span><strong>{{ bind_address }}:{{ backend_port }}</strong></div>
+    <div><span>Заглушка</span><strong><code>/var/www/sg-awg-placeholder/index.html</code></strong></div>
+    <div><span>Nginx панели</span><strong><code>/etc/nginx/sites-available/sg-awg-panel.conf</code></strong></div>
+    <div><span>Nginx заглушки</span><strong><code>/etc/nginx/sites-available/sg-awg-placeholder.conf</code></strong></div>
+  </div>
+  <div class="beta9-inline-actions"><a class="button" href="{{ url_for('placeholder_page') }}">Изменить заглушку</a><a class="button" href="{{ url_for('config_page') }}#generated-config">Generated Config</a></div>
+</details>
+
+{% elif active_tab == 'credentials' %}
+<div class="beta9-security-layout">
+  <section class="beta9-panel">
+    <div class="beta9-panel-heading"><div><h2>Сменить пароль</h2><p>После смены пароля все активные сессии, включая текущую, будут завершены.</p></div></div>
+    <form method="post" action="{{ url_for('security_password') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Текущий пароль<input type="password" name="current_password" required autocomplete="current-password"></label>
+      <label>Новый пароль<input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+      <label>Повторите новый пароль<input type="password" name="new_password_2" required minlength="8" autocomplete="new-password"></label>
+      <button class="button primary" type="submit">Изменить пароль</button>
+    </form>
+  </section>
+  <section class="beta9-panel">
+    <div class="beta9-panel-heading"><div><h2>IP allowlist</h2><p>Пустое поле разрешает вход с любого IP. Можно указать отдельные IP или сети CIDR через запятую.</p></div></div>
+    <form method="post" action="{{ url_for('security_allowlist') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Разрешённые IP и сети<textarea name="ip_allowlist" rows="6" placeholder="203.0.113.10, 198.51.100.0/24">{{ panel.ip_allowlist }}</textarea></label>
+      <p class="field-note">Ваш текущий IP: <code>{{ current_ip }}</code>{% if trust_proxy %} · определён через локальный Nginx{% endif %}. Панель не позволит сохранить список без текущего IP.</p>
+      <button class="button primary" type="submit">Сохранить allowlist</button>
+    </form>
+  </section>
+</div>
+
+{% elif active_tab == 'sessions' %}
+<section class="beta9-panel flush">
+  <div class="beta9-panel-heading" style="padding:20px 22px 0"><div><h2>Активные сессии</h2><p>Сессии хранятся на сервере и могут быть завершены отдельно.</p></div><form method="post" action="{{ url_for('security_sessions_revoke_others') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Завершить остальные</button></form></div>
+  <div class="beta9-table-wrap"><table class="beta9-table"><thead><tr><th>IP</th><th>Создана</th><th>Последняя активность</th><th>Клиент</th><th class="right">Действие</th></tr></thead><tbody>
+  {% for item in sessions %}<tr><td><code>{{ item.ip_address or '—' }}</code>{% if item.current %} <span class="pill success">ТЕКУЩАЯ</span>{% endif %}</td><td>{{ item.created_at }}</td><td>{{ item.last_seen_at }}</td><td class="truncate-cell" title="{{ item.user_agent }}">{{ item.user_agent or '—' }}</td><td class="right"><form method="post" action="{{ url_for('security_session_revoke', token_hash=item.token_hash) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small danger" type="submit">Завершить</button></form></td></tr>{% else %}<tr><td colspan="5" class="empty">Активных сессий нет.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+{% else %}
+<section class="beta9-panel flush">
+  <div class="beta9-panel-heading" style="padding:20px 22px 0"><div><h2>Журнал входов</h2><p>Последние успешные, ошибочные и заблокированные попытки.</p></div><span class="pill">100 СОБЫТИЙ</span></div>
+  <div class="beta9-table-wrap"><table class="beta9-table"><thead><tr><th>Время UTC</th><th>Событие</th><th>IP</th><th>Клиент</th><th>Подробности</th></tr></thead><tbody>
+  {% for event in auth_events %}<tr><td>{{ event.created_at }}</td><td><span class="beta9-event beta9-event-{{ event.display_class }}">{{ event.display_type }}</span><small class="beta9-event-code">{{ event.event_type }}</small></td><td><code>{{ event.ip_address or '—' }}</code></td><td class="truncate-cell" title="{{ event.user_agent }}">{{ event.user_agent or '—' }}</td><td>{{ event.detail or '—' }}</td></tr>{% else %}<tr><td colspan="5" class="empty">Журнал пока пуст.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

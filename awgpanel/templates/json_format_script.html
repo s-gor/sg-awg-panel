@@ -1,0 +1,9 @@
+<script>
+(() => {
+  const editor = document.getElementById('json-config');
+  document.querySelector('[data-json-format]')?.addEventListener('click', () => {
+    try { editor.value = JSON.stringify(JSON.parse(editor.value), null, 2) + '\n'; }
+    catch (error) { alert('JSON содержит ошибку: ' + error.message); }
+  });
+})();
+</script>

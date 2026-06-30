@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Network — SG-AWG-Panel{% endblock %}
+{% block section %}NETWORK{% endblock %}
+{% block heading %}Network{% endblock %}
+{% block subtitle %}Traffic Rules и внешние Outbounds в одном разделе{% endblock %}
+{% block heading_actions %}
+<a class="button" href="{{ url_for('outbound_json_new_page') }}">{ } Создать из JSON</a>
+<button class="button primary" type="button" onclick="const p=document.getElementById('outbound-create');p.open=true;p.scrollIntoView({behavior:'smooth',block:'center'})">＋ Добавить Outbound</button>
+{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы Network">
+  <a class="" href="{{ url_for('network_page', tab='traffic-rules') }}">Traffic Rules</a>
+  <a class="active" href="{{ url_for('network_page', tab='outbounds') }}">Outbounds</a>
+</nav>
+<section class="beta9-summary-grid beta9-summary-grid-two">
+  <article class="beta9-summary-card"><span>Всего Outbounds</span><strong>{{ outbounds|length }}</strong><small>Можно создать до 32 профилей</small></article>
+  <article class="beta9-summary-card"><span>Работают</span><strong class="{{ 'beta9-good' if traffic_status.active_profiles else '' }}">{{ traffic_status.active_profiles }}</strong><small>Активных выходных туннелей</small></article>
+</section>
+
+<section class="beta9-panel flush">
+  <div class="beta9-panel-heading" style="padding:22px 22px 0"><div><h2>Выходные туннели</h2><p>Каждый профиль — подключение к отдельному AWG Server. Технические параметры скрыты в подробностях.</p></div></div>
+  {% if outbounds %}
+  <div class="beta9-outbound-list">
+    {% for outbound in outbounds %}{% set status = outbound_status_by_id.get(outbound.id) %}
+    <article class="beta9-outbound-card {{ 'disabled' if not outbound.enabled else '' }}">
+      <div class="beta9-outbound-main">
+        <div class="beta9-outbound-title">
+          <i class="beta9-status-dot {{ 'off' if not outbound.enabled or not status or not status.healthy else '' }}"></i>
+          <div><h3>{{ outbound.name }}</h3><p>{{ outbound.endpoint }}</p></div>
+        </div>
+        <div class="beta9-outbound-state">
+          {% if status and status.healthy %}<strong class="beta9-good">Работает</strong>
+          {% elif outbound.enabled %}<strong class="beta9-bad">Не подключён</strong>
+          {% else %}<strong>Отключён</strong>{% endif %}
+          <small>Клиентов: {{ status.assigned_clients if status else 0 }}</small>
+        </div>
+      </div>
+      <div class="beta9-row-actions beta9-outbound-actions">
+        <a class="button small" href="{{ url_for('outbound_edit_page', outbound_id=outbound.id) }}">Редактировать</a>
+        <a class="button small" href="{{ url_for('outbound_json_page', outbound_id=outbound.id) }}">{ } JSON</a>
+        <form method="post" action="{{ url_for('outbound_update', outbound_id=outbound.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit" name="action" value="toggle">{{ 'Отключить' if outbound.enabled else 'Включить' }}</button></form>
+        <form method="post" action="{{ url_for('outbound_update', outbound_id=outbound.id) }}" onsubmit="return confirm('Удалить Outbound {{ outbound.name|e }}? Назначенный трафик вернётся к выходу через текущий сервер.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit" name="action" value="delete">Удалить</button></form>
+      </div>
+      <details class="beta9-technical"><summary>Технические параметры</summary><dl>
+        <div><dt>Интерфейс</dt><dd><code>{{ status.interface_name if status else ('sgo' ~ outbound.id) }}</code></dd></div>
+        <div><dt>Внутренний адрес</dt><dd><code>{{ outbound.address }}</code></dd></div>
+        <div><dt>Таблица маршрутизации</dt><dd><code>{{ status.traffic_table if status else '—' }}</code></dd></div>
+        <div><dt>FWMark</dt><dd><code>{{ status.fwmark if status else '—' }}</code></dd></div>
+      </dl></details>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="beta9-empty"><h3>Outbounds пока нет</h3><p>Добавьте клиентскую конфигурацию другого AWG Server, когда понадобится отдельное направление трафика.</p><button class="button primary" type="button" onclick="document.getElementById('outbound-create').open=true">Добавить Outbound</button></div>
+  {% endif %}
+</section>
+
+<details class="beta9-panel" id="outbound-create">
+  <summary>Добавить AmneziaWG Outbound через форму</summary>
+  <form method="post" action="{{ url_for('outbound_add') }}" class="ui-form outbound-create-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label><span>Название</span><input name="name" placeholder="Germany" required maxlength="64"></label>
+    <label><span>Клиентская конфигурация AmneziaWG</span><textarea name="config_text" rows="13" placeholder="[Interface]&#10;Address = ...&#10;PrivateKey = ...&#10;&#10;[Peer]&#10;PublicKey = ...&#10;AllowedIPs = 0.0.0.0/0&#10;Endpoint = ..." required></textarea></label>
+    <div class="beta9-note">Принимается один <code>[Interface]</code>, один <code>[Peer]</code> и полный туннель. Команды PostUp/PostDown запрещены.</div>
+    <div class="beta9-inline-actions"><button class="button primary" type="submit">Добавить и применить</button><a class="button" href="{{ url_for('outbound_json_new_page') }}">{ } Создать из JSON</a></div>
+  </form>
+</details>
+{% endblock %}

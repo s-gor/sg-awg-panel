@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}System — SG-AWG-Panel{% endblock %}
+{% block section %}SYSTEM{% endblock %}
+{% block heading %}System{% endblock %}
+{% block subtitle %}Ресурсы, состояние служб, журналы и диагностика{% endblock %}
+{% block heading_actions %}<a class="button" href="{{ url_for('system_page', tab=active_tab) }}">Обновить данные</a>{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы System">
+  <a class="{{ 'active' if active_tab == 'resources' else '' }}" href="{{ url_for('system_page', tab='resources') }}">Resources</a>
+  <a class="{{ 'active' if active_tab == 'status-services' else '' }}" href="{{ url_for('system_page', tab='status-services') }}">Status &amp; Services</a>
+  <a class="{{ 'active' if active_tab == 'logs-diagnostics' else '' }}" href="{{ url_for('system_page', tab='logs-diagnostics') }}">Logs &amp; Diagnostics</a>
+</nav>
+
+{% set os_info = resources.get('os', {}) %}
+{% if active_tab == 'resources' %}
+
+{% set memory = resources.get('memory', {}) %}
+{% set memory_segments = memory.get('segments', []) %}
+{% set disk_percent = resources.get('disk_percent', 0) %}
+{% set disk_status = 'critical' if disk_percent >= 95 else 'high' if disk_percent >= 85 else 'warning' if disk_percent >= 70 else 'normal' %}
+<section class="beta9-panel beta9-resource-dashboard">
+  <div class="beta9-panel-heading">
+    <div><h2>Оперативная память</h2><p>Сколько памяти занимает сама панель, веб-сервер, ядро и остальная Ubuntu.</p></div>
+    <div class="beta9-resource-refresh">
+      <div class="beta9-memory-summary"><strong id="memory-total-summary">{{ memory.get('used', resources.get('memory_used', 0))|filesize }} из {{ memory.get('total', resources.get('memory_total', 0))|filesize }}</strong><span id="memory-available-summary">Доступно {{ memory.get('available', resources.get('memory_available', 0))|filesize }}</span></div>
+      <button class="button small" id="resource-refresh-button" type="button">Обновить</button>
+      <small id="resource-updated-at">Обновлено сейчас · автоматически каждые 10 секунд</small>
+    </div>
+  </div>
+  <div class="beta9-memory-layout">
+    <div class="beta9-dial-column">
+      <div id="memory-dial" class="beta9-memory-dial beta9-load-{{ memory.get('status_class', 'normal') }}"
+           role="img"
+           aria-label="Использование оперативной памяти: {{ memory.get('used_percent', resources.get('memory_percent', 0)) }} процентов"
+           {% if memory_segments %}style="background:conic-gradient({% for segment in memory_segments %}var(--memory-{{ segment.key }}) {{ segment.start_percent }}% {{ segment.end_percent }}%{% if not loop.last %}, {% endif %}{% endfor %})"{% endif %}>
+        <div class="beta9-dial-center">
+          <strong id="memory-used-percent">{{ memory.get('used_percent', resources.get('memory_percent', 0)) }}%</strong>
+          <span id="memory-status-label">{{ memory.get('status_label', 'Память') }}</span>
+        </div>
+      </div>
+      <div class="beta9-dial-foot">
+        <span>Swap</span>
+        <strong id="memory-swap-used" class="{{ 'beta9-bad' if memory.get('swap_used', 0) else 'beta9-good' }}">{{ memory.get('swap_used', 0)|filesize }}</strong>
+      </div>
+    </div>
+    <div class="beta9-memory-legend">
+      {% for segment in memory_segments %}
+      <div class="beta9-memory-item" data-memory-segment="{{ segment.key }}">
+        <i class="beta9-memory-swatch beta9-memory-{{ segment.key }}"></i>
+        <div><span>{{ segment.label }}</span>{% if segment.key == 'panel' %}<small>Вся служба и дочерние процессы</small>{% elif segment.key == 'free' %}<small>Доступно с учётом кэша: {{ memory.get('available', 0)|filesize }}</small>{% endif %}</div>
+        <strong data-segment-bytes>{{ segment.bytes|filesize }}</strong>
+        <em data-segment-percent>{{ segment.percent }}%</em>
+      </div>
+      {% else %}
+      <p class="muted">Детализация памяти пока недоступна.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="beta9-memory-facts">
+    <div><span>Панель сейчас</span><strong id="memory-panel-current">{{ memory.get('panel_current', 0)|filesize }}</strong></div>
+    <div><span>Пиковая память панели</span><strong id="memory-panel-peak">{{ memory.get('panel_peak', 0)|filesize }}</strong></div>
+    <div><span>Nginx сейчас</span><strong id="memory-nginx-current">{{ memory.get('nginx_current', 0)|filesize }}</strong></div>
+    <div><span>Всего доступно</span><strong id="memory-available-fact" class="beta9-good">{{ memory.get('available', resources.get('memory_available', 0))|filesize }}</strong></div>
+  </div>
+  <details class="beta9-resource-method"><summary>Как считается память</summary><p>{{ memory.get('method', 'Данные получены из Linux и systemd.') }}</p></details>
+</section>
+
+<div class="beta9-resource-secondary-grid">
+  <section class="beta9-panel beta9-small-dial-panel">
+    <div class="beta9-panel-heading"><div><h2>Системный диск</h2><p>Корневая файловая система Ubuntu.</p></div></div>
+    <div class="beta9-small-dial-layout">
+      <div id="disk-dial" class="beta9-disk-dial beta9-load-{{ disk_status }}" style="--disk-used:{{ disk_percent }}%">
+        <div class="beta9-dial-center"><strong id="disk-used-percent">{{ disk_percent }}%</strong><span id="disk-status-label">{{ 'Критично' if disk_status == 'critical' else 'Мало места' if disk_status == 'high' else 'Внимание' if disk_status == 'warning' else 'В норме' }}</span></div>
+      </div>
+      <div class="beta9-compact-values">
+        <div><span>Использовано</span><strong id="disk-used-bytes">{{ resources.get('disk_used', 0)|filesize }}</strong></div>
+        <div><span>Свободно</span><strong id="disk-free-bytes" class="beta9-good">{{ resources.get('disk_free', 0)|filesize }}</strong></div>
+        <div><span>Всего</span><strong id="disk-total-bytes">{{ resources.get('disk_total', 0)|filesize }}</strong></div>
+      </div>
+    </div>
+  </section>
+  <section class="beta9-panel">
+    <div class="beta9-panel-heading"><div><h2>CPU и данные панели</h2><p>Текущая нагрузка и размер хранилища.</p></div></div>
+    <div class="beta9-resource-row"><div><b>Нагрузка CPU</b><small id="cpu-load-text">{{ resources.get('cpu_count', 1) }} ядро(а) · load {{ resources.get('load1', 0) }} / {{ resources.get('load5', 0) }} / {{ resources.get('load15', 0) }}</small></div><div class="beta9-meter"><i id="cpu-meter" style="width:{{ resources.get('cpu_percent', 0) }}%"></i></div><strong id="cpu-percent">{{ resources.get('cpu_percent', 0) }}%</strong></div>
+    <div class="beta9-info-grid beta9-storage-grid">
+      <div><span>База данных</span><strong>{{ resources.get('database_size', 0)|filesize }}</strong></div>
+      <div><span>Резервные копии</span><strong>{{ resources.get('backup_size', 0)|filesize }}</strong></div>
+      <div><span>Все данные панели</span><strong>{{ resources.get('panel_data_size', 0)|filesize }}</strong></div>
+      <div><span>Uptime</span><strong>{{ resources.get('uptime_text', '—') }}</strong></div>
+    </div>
+  </section>
+</div>
+
+
+<script>
+(() => {
+  const endpoint = {{ url_for('system_resources_json')|tojson }};
+  const colors = ['panel','nginx','kernel','other','cache','free'];
+  const formatBytes = (value) => {
+    let size = Math.max(0, Number(value || 0));
+    const units = ['B','KiB','MiB','GiB','TiB'];
+    let index = 0;
+    while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
+    return index < 2 ? `${Math.round(size)} ${units[index]}` : `${size.toFixed(1)} ${units[index]}`;
+  };
+  const setText = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
+  const loadClass = (prefix, status) => `${prefix} beta9-load-${status || 'normal'}`;
+  async function refreshResources() {
+    const button = document.getElementById('resource-refresh-button');
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch(endpoint, {headers:{'Accept':'application/json'}, cache:'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const r = payload.resources || {};
+      const m = r.memory || {};
+      setText('memory-total-summary', `${formatBytes(m.used || r.memory_used)} из ${formatBytes(m.total || r.memory_total)}`);
+      setText('memory-available-summary', `Доступно ${formatBytes(m.available || r.memory_available)}`);
+      setText('memory-used-percent', `${m.used_percent ?? r.memory_percent ?? 0}%`);
+      setText('memory-status-label', m.status_label || 'Память');
+      setText('memory-swap-used', formatBytes(m.swap_used));
+      const swap = document.getElementById('memory-swap-used');
+      if (swap) swap.className = Number(m.swap_used || 0) > 0 ? 'beta9-bad' : 'beta9-good';
+      setText('memory-panel-current', formatBytes(m.panel_current));
+      setText('memory-panel-peak', formatBytes(m.panel_peak));
+      setText('memory-nginx-current', formatBytes(m.nginx_current));
+      setText('memory-available-fact', formatBytes(m.available || r.memory_available));
+      const dial = document.getElementById('memory-dial');
+      const segments = Array.isArray(m.segments) ? m.segments : [];
+      if (dial && segments.length) {
+        dial.className = loadClass('beta9-memory-dial', m.status_class);
+        dial.style.background = `conic-gradient(${segments.map(s => `var(--memory-${s.key}) ${s.start_percent}% ${s.end_percent}%`).join(', ')})`;
+      }
+      segments.forEach((segment) => {
+        const row = document.querySelector(`[data-memory-segment="${segment.key}"]`);
+        if (!row) return;
+        const bytes = row.querySelector('[data-segment-bytes]');
+        const percent = row.querySelector('[data-segment-percent]');
+        if (bytes) bytes.textContent = formatBytes(segment.bytes);
+        if (percent) percent.textContent = `${segment.percent}%`;
+      });
+      const diskPercent = Number(r.disk_percent || 0);
+      const diskStatus = diskPercent >= 95 ? 'critical' : diskPercent >= 85 ? 'high' : diskPercent >= 70 ? 'warning' : 'normal';
+      const diskDial = document.getElementById('disk-dial');
+      if (diskDial) { diskDial.className = loadClass('beta9-disk-dial', diskStatus); diskDial.style.setProperty('--disk-used', `${diskPercent}%`); }
+      setText('disk-used-percent', `${diskPercent}%`);
+      setText('disk-status-label', diskStatus === 'critical' ? 'Критично' : diskStatus === 'high' ? 'Мало места' : diskStatus === 'warning' ? 'Внимание' : 'В норме');
+      setText('disk-used-bytes', formatBytes(r.disk_used));
+      setText('disk-free-bytes', formatBytes(r.disk_free));
+      setText('disk-total-bytes', formatBytes(r.disk_total));
+      setText('cpu-load-text', `${r.cpu_count || 1} ядро(а) · load ${r.load1 || 0} / ${r.load5 || 0} / ${r.load15 || 0}`);
+      setText('cpu-percent', `${r.cpu_percent || 0}%`);
+      const cpu = document.getElementById('cpu-meter'); if (cpu) cpu.style.width = `${r.cpu_percent || 0}%`;
+      const updated = r.generated_at ? new Date(r.generated_at) : new Date();
+      setText('resource-updated-at', `Обновлено ${updated.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})} · автоматически каждые 10 секунд`);
+    } catch (error) {
+      setText('resource-updated-at', 'Не удалось обновить данные · показаны последние значения');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+  document.getElementById('resource-refresh-button')?.addEventListener('click', refreshResources);
+  const timer = window.setInterval(refreshResources, 10000);
+  window.addEventListener('pagehide', () => window.clearInterval(timer), {once:true});
+})();
+</script>
+
+{% elif active_tab == 'status-services' %}
+
+<section class="beta9-summary-grid">
+  <article class="beta9-summary-card"><span>Общий статус</span><strong class="{{ 'beta9-good' if not problems else 'beta9-bad' }}">{{ 'Система в норме' if not problems else 'Требует внимания' }}</strong><small>{{ 'Критических проблем нет' if not problems else problems|length ~ ' проблем' }}</small></article>
+  <article class="beta9-summary-card"><span>Операционная система</span><strong>{{ os_info.get('version') or 'Linux' }}</strong><small>{{ os_info.get('name', 'Linux') }} · Kernel {{ os_info.get('kernel', '—') }}</small></article>
+  <article class="beta9-summary-card"><span>Uptime</span><strong>{{ resources.get('uptime_text', '—') }}</strong><small>С момента последнего reboot</small></article>
+  <article class="beta9-summary-card"><span>Публичный IP</span><strong class="beta9-mono">{{ diagnostics.public_ipv4 or 'Не определён' }}</strong><small>Интерфейс {{ diagnostics.external_interface or '—' }}</small></article>
+</section>
+<section class="beta9-panel">
+  <div class="beta9-panel-heading"><div><h2>Основные компоненты</h2><p>Только полезные прикладные состояния, без внутренних деталей firewall.</p></div></div>
+  <div class="beta9-component-list">{% for item in checks %}<div><span><i class="beta9-status-dot {{ 'off' if not item.ok and not item.neutral else '' }}" style="margin-right:10px"></i>{{ item.name }}</span><strong class="{{ 'beta9-good' if item.ok else 'beta9-warning' if item.neutral else 'beta9-bad' }}">{{ item.value }}</strong></div>{% endfor %}</div>
+</section>
+
+
+<section class="beta9-panel flush">
+  <div class="beta9-panel-heading" style="padding:20px 22px 0"><div><h2>systemd-службы</h2><p>Фактическое состояние компонентов, которыми управляет панель.</p></div></div>
+  <div class="beta9-table-wrap"><table class="beta9-table"><thead><tr><th>Служба</th><th>Назначение</th><th>Состояние</th><th>Автозапуск</th><th class="right">Журнал</th></tr></thead><tbody>
+  {% for item in services %}<tr><td><code>{{ item.unit }}</code></td><td>{{ item.title }}</td><td><strong class="{{ 'beta9-good' if item.state in ('active','activating') else 'beta9-bad' }}">{{ item.state }}</strong></td><td>{{ 'enabled' if item.enabled else 'disabled' }}</td><td class="right"><a class="button small" href="{{ url_for('system_page', tab='logs-diagnostics') }}#{{ item.unit }}">Открыть</a></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+{% else %}
+<section class="beta9-panel">
+  <div class="beta9-diagnostics-hero">
+    <div class="beta9-diagnostics-title"><span class="beta9-status-dot {{ 'off' if problems else '' }}"></span><div><h2>{{ 'Система работает нормально' if not problems else 'Обнаружены проблемы: ' ~ problems|length }}</h2><p>{{ 'Все основные прикладные проверки пройдены.' if not problems else 'Ниже показаны только состояния, которые требуют внимания.' }}</p></div></div>
+    <div class="beta9-inline-actions"><a class="button" href="{{ url_for('diagnostics_report') }}">Отчёт TXT</a><a class="button" href="{{ url_for('diagnostics_json_report') }}">{ } Отчёт JSON</a></div>
+  </div>
+  <div class="beta9-component-list" style="margin-top:20px">{% for item in checks %}<div><span>{{ item.name }}</span><strong class="{{ 'beta9-good' if item.ok else 'beta9-warning' if item.neutral else 'beta9-bad' }}">{{ item.value }}</strong></div>{% endfor %}</div>
+</section>
+<details class="beta9-panel beta9-technical-details"><summary>Техническая информация</summary><div class="beta9-technical-grid">
+  <div><span>Backend</span><strong>127.0.0.1:{{ diagnostics.backend_port }}</strong></div>
+  <div><span>AWG UDP</span><strong>{{ diagnostics.listen_port }}</strong></div>
+  <div><span>AWG-интерфейс</span><strong>{{ 'Присутствует' if diagnostics.interface_present else 'Отсутствует' }}</strong></div>
+  <div><span>Модуль AmneziaWG</span><strong>{{ 'Загружен' if diagnostics.module_loaded else 'Не загружен' }}</strong></div>
+  <div><span>Внешний интерфейс</span><strong>{{ diagnostics.external_interface or '—' }}</strong></div>
+  <div><span>Публичный IPv4</span><strong>{{ diagnostics.public_ipv4 or '—' }}</strong></div>
+  <div><span>Память backend</span><strong>{{ diagnostics.panel_rss_text }}</strong></div>
+  <div><span>Резервных копий</span><strong>{{ diagnostics.backups|length }}</strong></div>
+</div></details>
+<section class="beta9-panel">
+  <div class="beta9-panel-heading"><div><h2>Служебные журналы</h2><p>Открывайте только нужный компонент. Секреты конфигураций в отчётах маскируются.</p></div><div class="beta9-inline-actions"><a class="button" href="{{ url_for('diagnostics_report') }}">Скачать общий TXT</a></div></div>
+  <details id="sg-awg-panel.service" class="details-box"><summary>SG-AWG-Panel</summary><pre class="beta9-log">{{ diagnostics.panel_logs }}</pre></details>
+  <details id="sg-awg-server.service" class="details-box"><summary>AWG Server</summary><pre class="beta9-log">{{ diagnostics.server_logs }}</pre></details>
+  <details id="sg-awg-traffic.service" class="details-box"><summary>Traffic Rules</summary><pre class="beta9-log">{{ diagnostics.traffic_logs }}</pre></details>
+  <details id="nginx.service" class="details-box"><summary>Nginx</summary><pre class="beta9-log">{{ diagnostics.nginx_logs }}</pre></details>
+  <details id="sg-awg-recovery.service" class="details-box"><summary>Recovery</summary><pre class="beta9-log">{{ diagnostics.recovery_logs }}</pre></details>
+</section>
+{% endif %}
+{% endblock %}

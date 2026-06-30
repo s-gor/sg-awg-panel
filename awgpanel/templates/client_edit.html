@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} — SG-AWG-Panel{% endblock %}
+{% block body_class %}client-edit-page{% endblock %}
+{% block section %}CLIENTS / PROFILE{% endblock %}
+{% block heading %}{{ client.name }}{% endblock %}
+{% block subtitle %}Параметры устройства, срок доступа и текущее состояние{% endblock %}
+{% block content %}
+<div class="ui-page client-profile-page">
+  <nav class="client-tabs" aria-label="Разделы клиента">
+    <a class="active" href="{{ url_for('client_edit', client_id=client.id) }}">Основное</a>
+    {% if client.effective_enabled %}<a href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% else %}<span title="Клиент отключён или срок истёк">Конфигурация</span>{% endif %}
+    <a href="{{ url_for('traffic_rules_page', tab='rules') }}">Traffic Rules</a>
+    <a href="#statistics">Статистика</a>
+    <a href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>
+  </nav>
+
+  <section class="client-profile-summary">
+    <article class="ui-card client-identity-card">
+      <div class="client-profile-avatar">{{ client.name[:1]|upper }}</div>
+      <div><p class="panel-kicker">КЛИЕНТ #{{ client.id }}</p><h2>{{ client.name }}</h2><p>{{ client.comment or 'Без комментария' }}</p></div>
+      <div class="client-profile-status">
+        {% if client.lifecycle_status == 'active' %}<span class="pill enabled"><i></i>Активен</span>
+        {% elif client.lifecycle_status == 'expiring' %}<span class="pill warning"><i></i>Истекает скоро</span>
+        {% elif client.lifecycle_status == 'expired' %}<span class="pill danger"><i></i>Срок истёк</span>
+        {% else %}<span class="pill disabled"><i></i>Отключён вручную</span>{% endif %}
+        {% if client.online %}<span class="online-label"><i></i>онлайн</span>{% endif %}
+      </div>
+    </article>
+
+    <div class="client-profile-kpis" id="statistics">
+      <article><span>Адрес</span><strong><code>{{ client.address }}</code></strong></article>
+      <article><span>Handshake</span><strong>{{ client.latest_handshake_text or '—' }}</strong></article>
+      <article><span>Получено</span><strong>{{ client.rx_text or '0 B' }}</strong></article>
+      <article><span>Передано</span><strong>{{ client.tx_text or '0 B' }}</strong></article>
+      <article><span>Маршрут</span><strong>{{ client.egress_mode|capitalize }}</strong></article>
+      <article class="{{ 'warning' if client.expiring_soon and not client.expired else 'danger' if client.expired else '' }}"><span>Срок</span><strong>{{ client.expires_at_text }}</strong></article>
+    </div>
+  </section>
+
+  <section class="ui-card ui-card-form">
+    <header class="ui-card-heading ui-card-heading-row">
+      <div><p class="panel-kicker">ОСНОВНЫЕ ПАРАМЕТРЫ</p><h2>Настройки клиента</h2><p>DNS настраивается автоматически для работы доменных правил. Пустой MTU наследуется от AWG Server.</p></div>
+      <div class="ui-heading-actions"><a class="button secondary" href="{{ url_for('client_edit', client_id=client.id) }}">Форма</a><a class="button ghost json-action" href="{{ url_for('client_json_page', client_id=client.id) }}">{ } JSON</a></div>
+    </header>
+    <form method="post" action="{{ url_for('client_edit', client_id=client.id) }}" class="ui-form" data-expiry-scope>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="ui-field-grid">
+        <label><span>Название клиента</span><input name="name" maxlength="64" value="{{ client.name }}" required></label>
+        <label><span>Комментарий</span><input name="comment" maxlength="500" value="{{ client.comment }}"></label>
+        <label><span>MTU клиента</span><input type="number" min="576" max="1500" name="mtu" value="{{ client.mtu or '' }}" placeholder="Наследуется: {{ settings.mtu }}"><small>Оставьте пустым для серверного MTU.</small></label>
+      </div>
+
+      <fieldset class="expiry-fieldset" id="expiry">
+        <legend>Срок действия</legend>
+        <div class="current-expiry-line">
+          <span>Текущее состояние:</span><strong>{{ client.expires_at_text }}</strong>
+          {% if client.expires_at_iso %}<time data-utc="{{ client.expires_at_iso }}">{{ client.expires_at[:16] }} UTC</time>{% endif %}
+        </div>
+        <div class="expiry-mode-grid">
+          <label class="expiry-choice"><input type="radio" name="expiration_mode" value="unlimited" data-expiry-mode {% if not client.expires_at %}checked{% endif %}><span><strong>Без срока</strong><small>Убрать дату окончания.</small></span></label>
+          <label class="expiry-choice"><input type="radio" name="expiration_mode" value="period" data-expiry-mode><span><strong>Продлить на период</strong><small>Срок продлевается от действующей даты, а если она прошла — от текущего момента.</small></span></label>
+          <label class="expiry-choice"><input type="radio" name="expiration_mode" value="date" data-expiry-mode {% if client.expires_at %}checked{% endif %}><span><strong>До выбранной даты</strong><small>Точная дата и время в вашем часовом поясе.</small></span></label>
+        </div>
+        <div class="expiry-extra" data-expiry-period hidden>
+          <label><span>Продлить на</span><select name="duration_days"><option value="1">1 день</option><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option><option value="365">1 год</option></select></label>
+        </div>
+        <div class="expiry-extra" data-expiry-date {% if not client.expires_at %}hidden{% endif %}>
+          <label><span>Дата и время окончания</span><input type="datetime-local" name="expires_at_local" data-expiry-local data-current-utc="{{ client.expires_at_iso }}"><small>Календарь использует часовой пояс браузера.</small></label>
+          <input type="hidden" name="expires_at_utc" data-expiry-utc>
+          <input type="hidden" name="timezone_offset" data-timezone-offset>
+        </div>
+      </fieldset>
+
+      <div class="ui-actions"><button class="button primary" type="submit">Сохранить и применить</button><a class="button ghost" href="{{ url_for('clients_page') }}">Назад к клиентам</a>{% if client.effective_enabled %}<a class="button secondary" href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% endif %}</div>
+    </form>
+    <div class="ui-info-note"><span>i</span><p>Если срок истёк, клиент автоматически возвращается в <code>awg0</code> после продления. Если клиент отключён вручную, продление не включает его автоматически.</p></div>
+  </section>
+
+  <section class="ui-card client-danger-zone">
+    <header class="ui-card-heading"><div><p class="panel-kicker">УПРАВЛЕНИЕ ДОСТУПОМ</p><h2>Ручное состояние</h2><p>Ручное отключение действует независимо от календаря.</p></div></header>
+    <div class="client-danger-actions">
+      <form method="post" action="{{ url_for('client_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit">{{ 'Отключить клиента' if client.enabled else 'Включить клиента' }}</button></form>
+      <form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" onsubmit="return confirm('Пересоздать ключи? Старый файл и подключение перестанут работать.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Пересоздать ключи</button></form>
+      <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" onsubmit="return confirm('Удалить клиента {{ client.name|e }} без возможности восстановления?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Удалить клиента</button></form>
+    </div>
+  </section>
+</div>
+{% include "client_expiry_script.html" %}
+{% endblock %}

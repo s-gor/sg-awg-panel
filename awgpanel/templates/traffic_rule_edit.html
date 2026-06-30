@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Network — {{ 'Изменить правило' if rule else 'Новое правило' }}{% endblock %}
+{% block section %}NETWORK / TRAFFIC RULES{% endblock %}
+{% block heading %}{{ 'Изменить правило' if rule else 'Новое правило' }}{% endblock %}
+{% block subtitle %}Компактная настройка назначения, действия и области применения{% endblock %}
+{% block content %}
+<div class="ui-page network-rule-editor-page">
+  <nav class="editor-mode-tabs" aria-label="Способ редактирования">
+    {% if rule %}
+      <a class="{{ 'active' if editor == 'form' else '' }} {{ 'disabled' if not simple_editor_available else '' }}" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='form') }}">Форма</a>
+      <a class="{{ 'active' if editor == 'json' else '' }}" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='json') }}">JSON</a>
+    {% else %}
+      <a class="{{ 'active' if editor == 'form' else '' }}" href="{{ url_for('traffic_rule_new_page', view='form') }}">Форма</a>
+      <a class="{{ 'active' if editor == 'json' else '' }}" href="{{ url_for('traffic_rule_new_page', view='json') }}">JSON</a>
+    {% endif %}
+  </nav>
+
+  {% if editor == 'json' %}
+  <section class="ui-card network-json-editor-card">
+    <header class="ui-card-heading ui-card-heading-row"><div><p class="panel-kicker">TRAFFIC-RULE-V1</p><h2>{{ rule.name if rule else 'Новое правило' }}</h2><p>Проверка включает схему, ссылки на клиентов и Outbounds, генерацию временного nftables-файла и <code>nft -c -f</code>.</p></div><span class="config-state-badge {{ 'editable' if validation_passed else 'readonly' }}" id="rule-validation-badge">{{ 'ПРОВЕРЕНО' if validation_passed else 'ТРЕБУЕТ ПРОВЕРКИ' }}</span></header>
+    {% if rule and not simple_editor_available %}<div class="json-warning"><strong>Расширенное правило</strong><span>JSON сохранит параметры, которых нет в компактной форме.</span></div>{% endif %}
+    <form method="post" class="json-editor-form" id="rule-json-form" data-json-editor-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="editor" value="json">
+      <input type="hidden" name="rule_id" value="{{ rule.id if rule else '' }}">
+      <label class="json-editor-label" for="json-config">JSON правила</label>
+      <textarea id="json-config" class="json-editor json-editor-tall" name="json_config" spellcheck="false" required data-json-editor-input>{{ rule_json }}</textarea>
+      {% include "_json_validation.html" %}
+      <div class="json-editor-actions">
+        <button class="button ghost" type="button" data-json-format>Форматировать</button>
+        <button class="button secondary" id="validate-rule-json" type="submit" name="action" value="validate" formnovalidate>Проверить JSON</button>
+        <button class="button primary" id="save-rule-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }}>Сохранить и применить</button>
+        <a class="button ghost" href="{{ url_for('network_page', tab='traffic-rules') }}">Отмена</a>
+      </div>
+      <noscript><div class="json-validation-result pending"><strong>JavaScript отключён</strong><p>Сохранение заблокировано до проверки. Проверка всё равно работает на сервере: нажмите «Проверить JSON», дождитесь результата, затем сохраните.</p></div></noscript>
+    </form>
+  </section>
+  {% include "json_format_script.html" %}
+  {% include "_json_editor_script.html" %}
+  {% else %}
+  <section class="ui-card network-rule-compact-card">
+    <header class="ui-card-heading"><p class="panel-kicker">TRAFFIC RULE</p><h2>{{ rule.name if rule else 'Новое правило' }}</h2><p>Все основные параметры помещаются в одном рабочем окне. Расширенные поля доступны через JSON.</p></header>
+    <form method="post" class="ui-form network-rule-compact-form" data-traffic-simple-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="editor" value="form">
+      <div class="network-rule-grid">
+        <section class="network-rule-section network-rule-target">
+          <div class="network-rule-section-title"><span>1</span><div><strong>Назначение</strong><small>Что должно совпасть</small></div></div>
+          <label>Тип<select name="target_type"><option value="domain" {{ 'selected' if form_state.target_type == 'domain' else '' }}>Домены</option><option value="cidr" {{ 'selected' if form_state.target_type == 'cidr' else '' }}>IP / CIDR</option></select></label>
+          <label><span data-target-label>{{ 'Домены' if form_state.target_type == 'domain' else 'IP-адреса и сети' }}</span><textarea name="targets" rows="9" required>{{ form_state.targets }}</textarea><small>По одному значению в строке.</small></label>
+        </section>
+        <section class="network-rule-section">
+          <div class="network-rule-section-title"><span>2</span><div><strong>Действие</strong><small>Что сделать с трафиком</small></div></div>
+          <label>Действие<select name="action_mode"><option value="block" {{ 'selected' if form_state.action_mode == 'block' else '' }}>Block</option>{% if outbounds %}<option value="outbound" {{ 'selected' if form_state.action_mode == 'outbound' else '' }}>Outbound</option>{% endif %}</select></label>
+          {% if outbounds %}<label data-outbound-picker>Outbound<select name="outbound_id"><option value="">Выберите профиль</option>{% for outbound in outbounds %}<option value="{{ outbound.id }}" {{ 'selected' if form_state.outbound_id|string == outbound.id|string else '' }}>{{ outbound.name }}</option>{% endfor %}</select></label>{% else %}<div class="beta9-note compact">Outbounds пока нет. Доступно только действие Block.</div>{% endif %}
+          <div class="network-rule-safety"><strong>Системная проверка</strong><span>Перед применением панель выполнит dry-run nftables и откатит изменение при ошибке.</span></div>
+        </section>
+        <section class="network-rule-section network-rule-clients">
+          <div class="network-rule-section-title"><span>3</span><div><strong>Клиенты</strong><small>Для кого действует правило</small></div></div>
+          <label>Область<select name="client_scope"><option value="all" {{ 'selected' if form_state.client_scope == 'all' else '' }}>Все клиенты</option><option value="selected" {{ 'selected' if form_state.client_scope == 'selected' else '' }} {{ 'disabled' if not clients else '' }}>Выбранные клиенты</option></select></label>
+          <div class="network-client-checklist" data-selected-clients>
+            {% for client in clients %}<label><input type="checkbox" name="client_ids" value="{{ client.id }}" {{ 'checked' if client.id|string in form_state.selected_client_ids else '' }}><span><strong>{{ client.name }}</strong><small>{{ client.address }}</small></span></label>{% else %}<p>Клиенты ещё не созданы.</p>{% endfor %}
+          </div>
+        </section>
+      </div>
+      <div class="ui-actions network-rule-actions"><button class="button primary" type="submit">{{ 'Сохранить и применить' if rule else 'Создать и применить' }}</button><a class="button ghost" href="{{ url_for('network_page', tab='traffic-rules') }}">Отмена</a><a class="button ghost" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='json') if rule else url_for('traffic_rule_new_page', view='json') }}">Открыть JSON</a></div>
+    </form>
+  </section>
+  <script>
+  (()=>{const f=document.querySelector('[data-traffic-simple-form]');if(!f)return;const refresh=()=>{const type=f.target_type.value;const t=f.querySelector('[name="targets"]');f.querySelector('[data-target-label]').textContent=type==='cidr'?'IP-адреса и сети':'Домены';t.placeholder=type==='cidr'?'203.0.113.10\n192.168.0.0/16':'example.com\nexample.org';const out=f.querySelector('[data-outbound-picker]');if(out)out.hidden=f.action_mode.value!=='outbound';const list=f.querySelector('[data-selected-clients]');if(list)list.hidden=f.client_scope.value!=='selected';};f.addEventListener('change',refresh);refresh();})();
+  </script>
+  {% endif %}
+</div>
+{% endblock %}

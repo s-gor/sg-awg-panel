@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Maintenance — SG-AWG-Panel{% endblock %}
+{% block section %}MAINTENANCE{% endblock %}
+{% block heading %}Maintenance{% endblock %}
+{% block subtitle %}Резервные копии, восстановление, обновления и автоматический откат{% endblock %}
+{% block heading_actions %}<form method="post" action="{{ url_for('settings_update_check') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Обновить данные</button></form>{% endblock %}
+{% block content %}
+<nav class="beta9-tabs" aria-label="Разделы Maintenance">
+  <a class="" href="{{ url_for('maintenance_page', tab='backups') }}">Backups</a>
+  <a class="active" href="{{ url_for('maintenance_page', tab='updates') }}">Updates</a>
+</nav>
+<section class="beta9-summary-grid">
+  <article class="beta9-summary-card"><span>Установлена</span><strong>v{{ panel_version }}</strong><small>Текущая версия панели</small></article>
+  <article class="beta9-summary-card"><span>Последняя версия</span><strong>{{ update_info.latest or 'Не определена' }}</strong><small>{{ update_info.checked_at or 'Проверка ещё не выполнялась' }}</small></article>
+  <article class="beta9-summary-card"><span>Состояние обновления</span><strong>{{ update_status.state }}</strong><small>Последняя операция</small></article>
+  <article class="beta9-summary-card"><span>Защита обновления</span><strong class="beta9-good">Автоматический откат</strong><small>Перед изменением создаётся резервная копия</small></article>
+</section>
+
+<section class="beta9-panel">
+  <div class="beta9-panel-heading"><div><h2>{{ 'Доступна новая версия' if update_info.available else 'Панель обновлена' }}</h2><p>Проверка выполняется по опубликованным релизам SG-AWG-Panel.</p></div>
+    <form method="post" action="{{ url_for('settings_update_check') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button" type="submit">Проверить сейчас</button></form>
+  </div>
+  {% if update_info.error %}<div class="alert error">{{ update_info.error }}</div>{% endif %}
+  {% if update_info.available %}
+    <div class="beta9-note">Перед обновлением будет создана проверенная резервная копия. Если новая версия не запустится, прежняя установка восстановится автоматически.</div>
+    <form method="post" action="{{ url_for('settings_update_start') }}" onsubmit="return confirm('Начать обновление до {{ update_info.latest }}?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="version" value="{{ update_info.latest }}"><button class="button primary" type="submit">Обновить до {{ update_info.latest }}</button></form>
+  {% else %}<div class="alert success">Новая версия не обнаружена.</div>{% endif %}
+  {% if update_status.log %}<details class="beta9-technical"><summary>Последний журнал обновления</summary><pre class="beta9-log">{{ update_status.log }}</pre></details>{% endif %}
+</section>
+{% endblock %}

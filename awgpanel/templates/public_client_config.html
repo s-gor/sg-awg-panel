@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#15191f">
+  <title>{{ client.name }} — AmneziaWG</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_version }}">
+</head>
+<body class="public-config-body">
+  <main class="public-config-shell">
+    <section class="public-config-card">
+      <div class="public-config-brand"><strong>SG-AWG-Panel</strong><small>Конфигурация AmneziaWG</small></div>
+      <header>
+        <p class="eyebrow">УСТРОЙСТВО</p>
+        <h1>{{ client.name }}</h1>
+        <p>Выберите один способ. Файл и скопированный текст содержат одну и ту же конфигурацию.</p>
+      </header>
+      <div class="public-config-actions">
+        <a class="button primary wide" href="{{ url_for('public_client_download', token=token) }}">Скачать .conf</a>
+        <button class="button secondary wide" type="button" data-copy-public-config>Копировать конфигурацию</button>
+      </div>
+      <div class="ui-info-note"><span>i</span><p><strong>Импорт в AmneziaWG:</strong> выберите импорт из файла или вставьте скопированный текст целиком.</p></div>
+      <details class="public-config-details">
+        <summary>Показать полный текст</summary>
+        <textarea id="public-config-text" class="config-box" rows="22" readonly>{{ config_text }}</textarea>
+      </details>
+      <div class="ui-warning-note"><span>!</span><p><strong>Не публикуйте эту страницу.</strong> Конфигурация содержит приватный ключ и предназначена только для одного устройства.</p></div>
+    </section>
+  </main>
+<script>
+(() => {
+  const value = {{ config_text|tojson }};
+  const button = document.querySelector('[data-copy-public-config]');
+  button.addEventListener('click', async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+      else {
+        const area = document.getElementById('public-config-text');
+        area.closest('details').open = true;
+        area.focus(); area.select(); document.execCommand('copy');
+      }
+      button.textContent = 'Скопировано';
+    } catch (error) {
+      const area = document.getElementById('public-config-text');
+      area.closest('details').open = true;
+      area.focus(); area.select();
+      button.textContent = 'Нажмите Ctrl+C';
+    }
+  });
+})();
+</script>
+</body>
+</html>

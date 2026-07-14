@@ -13,6 +13,7 @@ require_supported_architecture
 require_no_pending_reboot
 
 if [[ ! -f /etc/sg-awg-panel/web.env ]]; then
+  prompt_instance_name "SG-AWG-Panel"
   prompt_admin_password 8
   prompt_public_port 62443
 fi
@@ -39,5 +40,5 @@ PUBLIC_PORT="${PUBLIC_PORT:-62443}"
 run_logged "Проверка панели через Nginx на TCP ${PUBLIC_PORT}..." \
   curl -fsS --max-time 10 "http://127.0.0.1:${PUBLIC_PORT}/health"
 
-install_info "SG-AWG-Panel v0.1.0-rc4 готова"
+install_info "SG-AWG-Panel v0.7.0-RC3 готова"
 install_info "Откройте TCP ${PUBLIC_PORT} в AWS Security Group"

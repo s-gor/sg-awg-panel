@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0d131b">
-  <title>SG-AWG-Panel v0.1.0-rc4 — Working UI Snapshot</title>
+  <title>SG-AWG-Panel v210 — Working UI Snapshot</title>
   <style>
 :root{
   --bg:#0d131b;--bg2:#101824;--sidebar:#131d2a;--panel:#17212e;--panel2:#1b2634;
@@ -41,7 +41,7 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.4 20 5.8v5.9c0 5.2-3.2 8.2-8 10-4.8-1.8-8-4.8-8-10V5.8l8-3.4Z"/><path d="M12 6v11M8.1 10.2H16"/></svg></div>
-      <div><strong>SG-AWG-Panel</strong><span>v0.1.0-rc4 · working snapshot</span></div>
+      <div><strong>SG-AWG-Panel</strong><span>v210 · working snapshot</span></div>
     </div>
 
 <nav class="main-nav" aria-label="Основная навигация">
@@ -49,8 +49,11 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
   <button class="nav-item" data-page="clients"><span class="nav-icon">●</span><span><b>Clients</b><small>Клиенты и подключения</small></span></button>
   <button class="nav-item" data-page="server"><span class="nav-icon">◈</span><span><b>AWG Server</b><small>Сервер и конфигурация</small></span></button>
   <button class="nav-item" data-page="network"><span class="nav-icon">⌁</span><span><b>Network</b><small>Правила и Outbounds</small></span></button>
+  <button class="nav-item" data-page="cascade"><span class="nav-icon">⇢</span><span><b>Cascade</b><small>Entry → Exit</small></span></button>
+  <button class="nav-item" data-page="cluster"><span class="nav-icon">⬡</span><span><b>Cluster</b><small>Controller и SG-Node</small></span></button>
   <button class="nav-item" data-page="security"><span class="nav-icon">◆</span><span><b>Security</b><small>Доступ и защита</small></span></button>
   <button class="nav-item" data-page="maintenance"><span class="nav-icon">↻</span><span><b>Maintenance</b><small>Копии и обновления</small></span></button>
+  <button class="nav-item" data-page="help"><span class="nav-icon">?</span><span><b>Help</b><small>Инструкции и ответы</small></span></button>
 </nav>
     <button class="collapse-button" id="collapseSidebar">← <span>Свернуть меню</span></button>
   </aside>
@@ -58,9 +61,9 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
     <header class="topbar">
       <button class="icon-button mobile-menu" id="mobileMenu" aria-label="Открыть меню">☰</button>
       <div class="topbar-spacer"></div>
-      <span class="topbar-version">RC4 FINAL CANDIDATE</span>
+      <span class="topbar-version">RC5 CANDIDATE</span>
       <button class="system-pill ok" data-page-link="system" title="Открыть System → Logs & Diagnostics"><span class="status-dot"></span><span>СИСТЕМА В НОРМЕ</span></button>
-      <button class="icon-button" data-demo="Справка доступна в руководстве пользователя" title="Справка">?</button>
+      <button class="icon-button" data-page-link="help" title="Справка">?</button>
       <button class="account-button"><span>admin</span><span>⌄</span></button>
     </header>
     <main class="content">
@@ -68,11 +71,11 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
 <section class="page active" id="page-system">
   <div class="page-heading">
     <div><p class="eyebrow">SG-AWG-PANEL / SYSTEM</p><h1>System</h1><p>Ресурсы, службы, журналы и прикладная диагностика рабочего сервера</p></div>
-    <div class="heading-actions"><span class="snapshot-badge">v0.1.0-rc4 · WORKING</span><button class="button" data-demo="Системные данные обновлены">Обновить данные</button></div>
+    <div class="heading-actions"><span class="snapshot-badge">v210 · WORKING</span><button class="button" data-demo="Системные данные обновлены">Обновить данные</button></div>
   </div>
   <section class="panel release-strip">
-    <div><span class="status-dot"></span><div><b>Рабочий RC4 полностью проверен</b><p>Чистая установка, вход, клиент AmneziaWG, Traffic Rules, reboot recovery и полный uninstall.</p></div></div>
-    <span class="badge good-badge">ВСЁ РАБОТАЕТ</span>
+    <div><span class="status-dot"></span><div><b>База RC4 проверена · RC5 готов к живому прогону</b><p>Чистая установка, вход, клиент AmneziaWG, Traffic Rules, reboot recovery и полный uninstall.</p></div></div>
+    <span class="badge good-badge">АВТОПРОВЕРКИ ПРОЙДЕНЫ</span>
   </section>
   <div class="tabs" data-tabs="system"><button class="active" data-tab="resources">Resources</button><button data-tab="statusservices">Status &amp; Services</button><button data-tab="logsdiagnostics">Logs &amp; Diagnostics</button></div>
   <div class="tab-content active" data-tab-content="system-resources"><div class="two-column"><section class="panel resource-panel"><h2>Использование ресурсов</h2><div class="resource-row"><div><b>CPU</b><span>1 ядро</span></div><div class="meter"><i style="width:18%"></i></div><strong>18%</strong></div><div class="resource-row"><div><b>Память</b><span>512 MiB / 1.94 GiB</span></div><div class="meter"><i style="width:27%"></i></div><strong>27%</strong></div><div class="resource-row"><div><b>Диск</b><span>4.2 GiB / 20.0 GiB</span></div><div class="meter"><i style="width:21%"></i></div><strong>21%</strong></div></section><section class="panel"><h2>Хранилище панели</h2><div class="info-cards"><div><span>База данных</span><b>1.3 MiB</b></div><div><span>Резервные копии</span><b>3.1 MiB</b></div><div><span>Журналы</span><b>18.4 MiB</b></div><div><span>Свободно</span><b class="good">15.8 GiB</b></div></div></section></div></div>
@@ -152,7 +155,7 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
 </section>
 </div>
   <div class="tab-content" data-tab-content="server-json">
-    <div class="tabs nested-tabs" data-tabs="serverjson"><button class="active" data-tab="full">Full JSON</button><button data-tab="generated">Generated Config</button></div>
+    <div class="tabs nested-tabs" data-tabs="serverjson"><button class="active" data-tab="full">Full JSON</button><button data-tab="generated">System Files</button></div>
     <div class="tab-content active" data-tab-content="serverjson-full"><section class="panel editor-panel"><div class="editor-toolbar"><div><b>Current JSON</b><span>Основной экспертный инструмент</span></div><div class="heading-actions"><button class="button small">Форматировать</button><button class="button small">Проверить</button><button class="button small">Синхронизировать</button></div></div><textarea class="code-editor" spellcheck="false">{
   "version": "sg-awg-panel-config-v3",
   "server": {
@@ -174,7 +177,7 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
     "scheme": "http"
   }
 }</textarea><div class="editor-status"><span class="good">✓ JSON синхронизирован с текущим состоянием</span><span>Последнее изменение: 29.06.2026, 16:20</span></div></section></div>
-    <div class="tab-content" data-tab-content="serverjson-generated"><section class="panel"><div class="panel-heading"><div><h2>Generated Config</h2><p>Только чтение: реально созданные системные файлы.</p></div></div><div class="generated-list"><button class="active">awg0.conf</button><button>Nginx</button><button>Traffic Rules</button><button>systemd</button></div><pre class="log-view">[Interface]
+    <div class="tab-content" data-tab-content="serverjson-generated"><section class="panel"><div class="panel-heading"><div><h2>System Files</h2><p>Только чтение: реально созданные системные файлы.</p></div></div><div class="generated-list"><button class="active">awg0.conf</button><button>Nginx</button><button>Traffic Rules</button><button>systemd</button></div><pre class="log-view">[Interface]
 Address = 10.77.0.1/24
 ListenPort = 585
 PrivateKey = $REDACTED
@@ -203,6 +206,62 @@ Jmax = 128
 <section class="panel"><div class="empty-state"><div class="empty-icon">↗</div><h3>Outbounds не настроены</h3><p>Они нужны только для каскада или выбора другого выхода для части трафика.</p><button class="button primary">Добавить Outbound</button></div></section>
 </div>
 </section>
+
+<section class="page" id="page-cascade">
+  <div class="page-heading">
+    <div><p class="eyebrow">SG-AWG-PANEL / CASCADE</p><h1>Cascade</h1><p>Понятный маршрут Client → Entry → Exit → Internet без ручной сборки правил</p></div>
+    <div class="heading-actions"><button class="button">{ } JSON</button></div>
+  </div>
+  <section class="panel status-hero">
+    <div><span class="section-label">СХЕМА МАРШРУТА</span><h2>Client → Entry → Exit → Internet</h2><p>Entry принимает подключение клиента, Exit предоставляет внешний адрес. Отключение Cascade безопасно возвращает назначенных клиентов на обычный AWG-Gateway.</p></div>
+    <span class="badge neutral-badge">НЕ НАСТРОЕН</span>
+  </section>
+  <div class="summary-grid three">
+    <article class="summary-card"><span>1 · Exit</span><strong>Создать служебный доступ</strong><small>Получить одноразовую конфигурацию для Entry</small></article>
+    <article class="summary-card"><span>2 · Entry</span><strong>Импортировать и проверить</strong><small>Проверка туннеля, маршрута и выходного IP</small></article>
+    <article class="summary-card"><span>3 · Клиенты</span><strong>Назначить и включить</strong><small>Выбранные клиенты направляются через Exit</small></article>
+  </div>
+  <section class="panel">
+    <div class="panel-heading"><div><h2>Мастер Cascade</h2><p>Кнопка включения становится доступной только после успешной проверки служебного туннеля.</p></div></div>
+    <div class="check-grid">
+      <div><span class="check">1</span><div><b>Создайте служебного клиента на Exit</b><small>Конфигурацию можно повторно открыть, пока служебный peer существует; кнопка явно подтверждает копирование.</small></div></div>
+      <div><span class="check">2</span><div><b>Импортируйте конфигурацию на Entry</b><small>Панель создаёт отдельный системный outbound SG-AWG Cascade.</small></div></div>
+      <div><span class="check">3</span><div><b>Запустите полную проверку</b><small>Проверяются интерфейс, маршрут и фактический выход через выбранный outbound.</small></div></div>
+      <div><span class="check">4</span><div><b>Назначьте клиентов</b><small>Можно выбрать отдельных клиентов или все активные подключения.</small></div></div>
+    </div>
+    <div class="form-actions"><button class="button primary" data-demo="Сначала создайте и проверьте служебный туннель">Начать настройку</button><button class="button danger" data-demo="Cascade уже выключен">Вернуть Direct</button></div>
+  </section>
+</section>
+
+
+<section class="page" id="page-cluster">
+  <div class="page-heading">
+    <div><p class="eyebrow">SG-AWG-PANEL / CLUSTER</p><h1>Cluster</h1><p>Controller и дополнительные SG-Node с безопасным подключением и управляемыми заданиями</p></div>
+    <div class="heading-actions"><button class="button primary" data-demo="Создан одноразовый токен подключения на 30 минут">＋ Добавить SG-Node</button></div>
+  </div>
+  <div class="summary-grid four">
+    <article class="summary-card"><span>Controller</span><strong class="good">В сети</strong><small>Текущая SG-AWG-Panel</small></article>
+    <article class="summary-card"><span>SG-Node</span><strong>1</strong><small>Подключённые узлы</small></article>
+    <article class="summary-card"><span>Heartbeat</span><strong class="good">Получен</strong><small>CPU, RAM, диск, службы и версии</small></article>
+    <article class="summary-card"><span>Очередь заданий</span><strong>0</strong><small>Только фиксированные безопасные операции</small></article>
+  </div>
+  <section class="panel table-panel">
+    <div class="panel-heading"><div><h2>Серверы кластера</h2><p>Node подключается одной командой после предварительной установки runtime.</p></div></div>
+    <table><thead><tr><th>Узел</th><th>Адрес</th><th>Службы</th><th>Клиенты</th><th>Состояние</th><th></th></tr></thead><tbody>
+      <tr><td><b>Controller</b><small class="block">Локальный сервер</small></td><td class="mono">63.177.95.84</td><td>Panel · AWG · Traffic</td><td>Основной сервер</td><td><span class="badge good-badge">В СЕТИ</span></td><td class="right"><button class="button small">Открыть</button></td></tr>
+      <tr><td><b>SG-Node Paris</b><small class="block">Ubuntu 24.04</small></td><td class="mono">198.51.100.42</td><td>Agent · AWG · Traffic</td><td><span class="good">Активен</span></td><td><span class="badge good-badge">В СЕТИ</span></td><td class="right"><button class="button small">Открыть</button></td></tr>
+    </tbody></table>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><h2>Клиенты SG-Node</h2><p>Клиенты Controller и SG-Node создаются в едином разделе Clients. Agent добавляет peer в рабочий awg0 на UDP-порту 585, а конфигурация выдаётся после проверки.</p></div></div>
+    <div class="check-grid">
+      <div><span class="check ok-check">✓</span><div><b>Node подключена</b><small>Токен регистрации уже погашен.</small></div></div>
+      <div><span class="check ok-check">✓</span><div><b>Конфигурация проверена</b><small>AWG strip и nftables dry-run пройдены.</small></div></div>
+      <div><span class="check ok-check">✓</span><div><b>Профиль применён</b><small>Службы активны, приватный payload удалён из очереди.</small></div></div>
+    </div>
+  </section>
+</section>
+
       <section class="page" id="page-security">
 <div class="page-heading"><div><p class="eyebrow">SG-AWG-PANEL / SECURITY</p><h1>Security</h1><p>Доступ к панели, пароль, IP allowlist, сессии и журнал входов</p></div><button class="button">{ } JSON</button></div>
 <div class="tabs" data-tabs="security"><button class="active" data-tab="access">Panel Access</button><button data-tab="password">Пароль и IP allowlist</button><button data-tab="sessions">Сессии</button><button data-tab="logins">Журнал входов</button></div>
@@ -234,12 +293,37 @@ Jmax = 128
 <section class="panel table-panel"><div class="panel-heading"><div><h2>История резервных копий</h2><p>Опасные действия спрятаны в меню конкретной копии.</p></div><button class="text-link">Как проверяются копии →</button></div><table><thead><tr><th>Дата и время</th><th>Причина</th><th>Размер</th><th>Статус</th><th class="right">Действия</th></tr></thead><tbody><tr><td><b>29 июня 2026, 16:20</b><small class="mono block">20260629-161650-040157</small></td><td>Изменение настроек AWG Server</td><td>153.7 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr><tr><td><b>29 июня 2026, 15:53</b><small class="mono block">20260629-155303-246095</small></td><td>Добавлен клиент XYZ</td><td>153.6 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr><tr><td><b>29 июня 2026, 15:30</b><small class="mono block">20260629-153015-005711</small></td><td>Автоматическая копия</td><td>151.9 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr></tbody></table></section>
 </div>
   <div class="tab-content" data-tab-content="maintenance-updates">
-<div class="two-column"><section class="panel status-hero"><div><span class="section-label">ТЕКУЩАЯ ВЕРСИЯ</span><h2>v0.1.0-rc4</h2><p>Канал обновлений: стабильные релизы</p></div><span class="badge neutral-badge">ФИНАЛЬНЫЙ RC</span></section><section class="panel"><div class="panel-heading"><div><h2>Доступная версия</h2><p>RC4 опубликован и проверен на чистой установке.</p></div></div><div class="empty-state compact"><h3>Установлена актуальная версия</h3><p>RC4 будет доступна только после теста Beta 4 → RC4, reboot и проверки systemd.</p></div></section></div>
+<div class="two-column"><section class="panel status-hero"><div><span class="section-label">ТЕКУЩАЯ ВЕРСИЯ</span><h2>v210</h2><p>Канал обновлений: стабильные релизы</p></div><span class="badge neutral-badge">ФИНАЛЬНЫЙ RC</span></section><section class="panel"><div class="panel-heading"><div><h2>Доступная версия</h2><p>База RC4 проверена; RC5 добавляет Cascade, Cluster и Help.</p></div></div><div class="empty-state compact"><h3>Установлена актуальная версия</h3><p>RC5 требует полного прогона Controller, SG-Node и Cascade на двух серверах.</p></div></section></div>
 <section class="panel"><div class="panel-heading"><div><h2>Безопасность обновления</h2><p>Перед обновлением создаётся проверенная резервная копия.</p></div></div><div class="check-grid"><div><span class="check ok-check">✓</span><div><b>Проверка архива</b><small>Версия, структура и контрольная сумма</small></div></div><div><span class="check ok-check">✓</span><div><b>Резервная копия</b><small>SQLite, AWG и настройки панели</small></div></div><div><span class="check ok-check">✓</span><div><b>Автоматический откат</b><small>При ошибке службы или health check</small></div></div></div></section>
 </div>
 </section>
+
+<section class="page" id="page-help">
+  <div class="page-heading">
+    <div><p class="eyebrow">SG-AWG-PANEL / HELP</p><h1>Help</h1><p>Полная встроенная справка по установке, серверу, клиентам, Cascade, Cluster и обслуживанию</p></div>
+  </div>
+  <section class="panel toolbar-panel"><div class="search-field"><span>⌕</span><input placeholder="Найти в справке: Cascade, SG-Node, клиент, восстановление…"/></div><div class="toolbar-spacer"></div><button class="button" data-demo="Открыт раздел с диагностикой">Типовые ошибки</button></section>
+  <div class="two-column">
+    <section class="panel">
+      <div class="panel-heading"><div><h2>Быстрый старт</h2><p>Пошаговые инструкции без необходимости искать отдельные документы.</p></div></div>
+      <div class="component-list">
+        <div><span>Установка Controller из архива</span><b>7 шагов</b></div>
+        <div><span>Создание первого клиента</span><b>3 шага</b></div>
+        <div><span>Подключение SG-Node</span><b>2 установки + 1 подключение</b></div>
+        <div><span>Настройка Cascade</span><b>6 шагов</b></div>
+        <div><span>Резервная копия и восстановление</span><b>Безопасный сценарий</b></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-heading"><div><h2>Разделы</h2><p>Справка соответствует текущему интерфейсу RC5.</p></div></div>
+      <div class="info-cards"><div><span>Основы</span><b>Установка и вход</b></div><div><span>AWG</span><b>Server и Clients</b></div><div><span>Сеть</span><b>Rules и Outbounds</b></div><div><span>Инфраструктура</span><b>Cascade и Cluster</b></div><div><span>Защита</span><b>Security</b></div><div><span>Поддержка</span><b>Maintenance и Diagnostics</b></div></div>
+    </section>
+  </div>
+  <section class="panel"><div class="panel-heading"><div><h2>Главный принцип</h2><p>Панель показывает только реальные, проверяемые функции. Системные файлы доступны отдельно только для чтения, а экспертный Current JSON остаётся редактируемым инструментом.</p></div></div></section>
+</section>
+
     </main>
-    <footer class="footer">© 2026 SG-AWG-Panel · v0.1.0-rc4 · автономный снимок рабочего интерфейса</footer>
+    <footer class="footer">© 2026 SG-AWG-Panel · v210 · автономный снимок рабочего интерфейса</footer>
   </div>
 </div>
 <div class="overlay" id="overlay"></div>

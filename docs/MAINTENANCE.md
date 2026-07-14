@@ -17,7 +17,7 @@
 Ручной запуск:
 
 ```bash
-sudo env SG_AWG_PANEL_VERSION=v0.1.0-rc4   bash /opt/sg-awg-panel/deploy/update-from-github.sh
+sudo env SG_AWG_PANEL_VERSION=v210   bash /opt/sg-awg-panel/deploy/update-from-github.sh
 ```
 
 После обновления:
@@ -29,4 +29,4 @@ sudo env SG_AWG_PANEL_VERSION=v0.1.0-rc4   bash /opt/sg-awg-panel/deploy/update-
 5. проверьте Nginx;
 6. подключите реального клиента.
 
-RC4 не заявляет автоматический откат как гарантированную подтверждённую функцию.
+До живого прогона RC5 автоматический откат обновления не следует считать подтверждённой гарантией. Всегда сохраняйте отдельную резервную копию.

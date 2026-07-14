@@ -29,7 +29,7 @@
       <p class="field-note">Допустимый диапазон: <code>49152–65535</code>. Рекомендуемое значение: <code>62443</code>.</p>
       <label class="checkbox-row"><input type="checkbox" name="manage_placeholder" value="1" {{ 'checked' if panel.manage_placeholder else '' }}><span>Управлять заглушкой на HTTPS 443 и выпуском сертификата</span></label>
       <p class="field-note">На отдельном сервере оставьте включённым. Выключайте только если TCP 443 уже обслуживается другим Nginx-проектом.</p>
-      <button class="button primary" type="submit" onclick="return confirm('Применить новый домен, режим или порт панели? Новый TCP-порт должен быть заранее открыт в Security Group.')">Сохранить и применить</button>
+      <button class="button primary" type="submit" data-confirm-title="Изменить публичный доступ к панели?" data-confirm-message="После применения адрес панели может измениться. Новый TCP-порт должен быть заранее открыт в Security Group или firewall." data-confirm-action="Сохранить и применить" data-confirm-tone="warning">Сохранить и применить</button>
     </form>
   </section>
   <aside class="beta9-card-stack">
@@ -51,7 +51,7 @@
     <div><span>Nginx панели</span><strong><code>/etc/nginx/sites-available/sg-awg-panel.conf</code></strong></div>
     <div><span>Nginx заглушки</span><strong><code>/etc/nginx/sites-available/sg-awg-placeholder.conf</code></strong></div>
   </div>
-  <div class="beta9-inline-actions"><a class="button" href="{{ url_for('placeholder_page') }}">Изменить заглушку</a><a class="button" href="{{ url_for('config_page') }}#generated-config">Generated Config</a></div>
+  <div class="beta9-inline-actions"><a class="button" href="{{ url_for('placeholder_page') }}">Изменить заглушку</a><a class="button" href="{{ url_for('config_page') }}#generated-config">System Files</a></div>
 </details>
 
 {% elif active_tab == 'credentials' %}

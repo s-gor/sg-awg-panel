@@ -101,7 +101,7 @@ def test_rc1_resource_endpoint_is_lightweight_and_no_store():
     assert "def system_resources_json" in web
     assert "get_system_resources()" in web
     assert 'response.headers["Cache-Control"] = "no-store"' in web
-    assert "-ui7" in web
+    assert "-sgawg070rc3" in web
 
 
 def test_rc3_system_information_architecture_and_removal_progress():
@@ -142,12 +142,12 @@ def test_rc3_candidate2_consolidated_sections_and_system_landing():
     assert base.index("<b>System</b>") < base.index("<b>Clients</b>") < base.index("<b>AWG Server</b>") < base.index("<b>Network</b>") < base.index("<b>Security</b>") < base.index("<b>Maintenance</b>")
     assert "Server</a>" in server and ">JSON</a>" in server
     assert "Разделы AWG Server" in config
-    assert "Full JSON" in config and "Generated Config" in config
-    assert "Section JSON" in config and "Generated system config" in config
+    assert "Full JSON" in config and "System Files" in config
+    assert "Section JSON" not in config and "Активные конфигурации" in config
     assert "Разделы Network" in rules and "Разделы Network" in outbounds
     assert "Разделы Maintenance" in backups and "Разделы Maintenance" in updates
     assert web.count('return redirect(url_for("system_page"))') >= 3
-    assert '-ui7' in web
+    assert '-sgawg070rc3' in web
 
 
 def test_rc3_candidate3_brand_favicon_is_hexagon_with_sg_only():
@@ -183,12 +183,12 @@ def test_rc3_candidate3_generated_config_is_a_json_and_system_config_hub():
     config = (ROOT / "awgpanel/templates/config.html").read_text(encoding="utf-8")
     manager = (ROOT / "awgpanel/config_manager.py").read_text(encoding="utf-8")
     assert "Full JSON" in config
-    assert "Generated Config" in config
-    assert "Section JSON" in config
-    assert "Generated system config" in config
+    assert "System Files" in config
+    assert "Section JSON" not in config
+    assert "Активные конфигурации" in config
     for label in ("server", "clients", "network", "security", "maintenance"):
         assert f'"{label}":' in manager
-    assert "section_json_download" in config
+    assert "section_json_download" not in config
     assert "generated_config_download" in config
 
 

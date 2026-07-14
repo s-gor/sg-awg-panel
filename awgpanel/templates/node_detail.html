@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}{{ node.name }} · Cluster{% endblock %}
+{% block section %}CLUSTER / SG-NODE{% endblock %}
+{% block heading %}{{ country_flag_icon(node.country_code, node.country_name) }} {{ node.name }}{% endblock %}
+{% block subtitle %}{{ 'Локальный Controller' if node.is_local else 'Отдельный AmneziaWG-сервер и SG-Node Agent' }}{% endblock %}
+{% block body_class %}ui-standard-page node-detail-page{% endblock %}
+{% block heading_actions %}<a class="button secondary" href="{{ url_for('nodes_page') }}">← Все узлы</a>{% endblock %}
+{% block content %}
+{% if one_time_command %}
+<section class="panel-card one-time-secret-card">
+  <div class="card-heading"><div><span class="section-kicker">ОДНОРАЗОВАЯ КОМАНДА</span><h2>Подключите SG-Node</h2><p>1. Нажмите «Копировать». 2. Выполните команду на подготовленном сервере. 3. Вернитесь на эту страницу — статус обновится автоматически.</p></div></div>
+  <div class="copy-command-row"><code id="node-connect-command">{{ one_time_command }}</code><button class="button primary" type="button" data-copy-target="node-connect-command">Копировать</button></div>
+  <div class="node-next-step"><b>После сообщения «Подключение завершено. Agent active» ничего больше на сервере вводить не нужно.</b><span>Эта страница проверяет heartbeat каждые 5 секунд. После выполнения команды статус изменится автоматически.</span></div>
+</section>
+{% endif %}
+
+{% if not node.is_local and node.effective_state == 'pending' and not one_time_command %}
+<section class="panel-card node-pending-action">
+  <div><span class="section-kicker">SG-NODE ЕЩЁ НЕ ПОДКЛЮЧЕНА</span><h2>Нужна команда подключения?</h2><p>Создайте новую одноразовую команду прямо здесь. После её выполнения статус обновится автоматически.</p></div>
+  <div class="node-pending-buttons">
+    <form method="post" action="{{ url_for('node_renew', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary large" type="submit">Создать команду подключения</button></form>
+    <form method="post" action="{{ url_for('node_job_create', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="refresh"><button class="button secondary" type="submit">Проверить подключение</button></form>
+  </div>
+</section>
+{% endif %}
+
+<section class="node-detail-grid">
+  <article class="panel-card node-identity-card">
+    <div class="card-heading"><div><span class="section-kicker">СЕРВЕР И AGENT</span><h2>Состояние узла</h2></div><span class="status-badge {{ 'success' if node.effective_state == 'online' else ('warning' if node.effective_state == 'pending' else 'danger') }}">{{ {'online':'В сети','pending':'Ожидает подключения','offline':'Не в сети','error':'Ошибка','disabled':'Отключена'}.get(node.effective_state,node.effective_state) }}</span></div>
+    <dl class="node-data-list">
+      <div><dt>Роль</dt><dd>{{ 'Controller' if node.is_local else 'SG-Node' }}</dd></div>
+      <div><dt>Идентификатор</dt><dd><code>{{ node.slug }}</code></dd></div>
+      <div><dt>Публичный адрес</dt><dd>{{ node.public_ipv4 or node.public_host or 'ещё не получен' }}</dd></div>
+      <div><dt>Страна</dt><dd>{{ country_flag_icon(node.country_code, node.country_name) }} {{ node.country_name }}{% if node.country_mode == 'manual' %} · вручную{% else %} · автоматически{% endif %}</dd></div>
+      <div><dt>Внутренний адрес</dt><dd>{{ node.private_ipv4 or '—' }}</dd></div>
+      <div><dt>Agent</dt><dd>{{ node.agent_version or ('локальный' if node.is_local else 'ожидается') }}</dd></div>
+      <div><dt>Последний heartbeat</dt><dd>{{ node.last_seen_at or '—' }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel-card node-services-card">
+    <div class="card-heading"><div><span class="section-kicker">СЛУЖБЫ И ВЕРСИИ</span><h2>Runtime</h2></div></div>
+    <div class="node-service-list">
+      <div><span>AmneziaWG</span><b class="state-{{ node.service_awg }}">{{ node.service_awg }}</b></div>
+      <div><span>Traffic Rules</span><b class="state-{{ node.service_traffic }}">{{ node.service_traffic }}</b></div>
+      <div><span>Nginx</span><b class="state-{{ node.service_nginx }}">{{ node.service_nginx }}</b></div>
+      <div><span>AWG version</span><b>{{ node.awg_version or '—' }}</b></div>
+      <div><span>ОС</span><b>{{ (node.os_name ~ ' ' ~ node.os_version)|trim or '—' }}</b></div>
+      <div><span>Kernel</span><b>{{ node.kernel or '—' }}</b></div>
+    </div>
+  </article>
+</section>
+
+
+<section class="panel-card node-rename-card" id="rename-server">
+  <div class="card-heading"><div><span class="section-kicker">ИМЯ СЕРВЕРА</span><h2>{{ 'Переименовать Controller' if node.is_local else 'Переименовать SG-Node' }}</h2><p>Имя используется в Cluster, Clients и Cascade.</p></div></div>
+  {% if node.is_local %}
+  <button class="button primary" type="button" data-open-server-rename>Переименовать сервер</button>
+  {% else %}
+  <form method="post" action="{{ url_for('node_rename', node_id=node.id) }}" class="node-rename-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label><span>Имя SG-Node</span><input name="name" maxlength="96" required value="{{ node.name }}"></label>
+    <button class="button primary" type="submit">Переименовать SG-Node</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="panel-card node-country-card">
+  <div class="card-heading"><div><span class="section-kicker">СТРАНА СЕРВЕРА</span><h2>Флаг рядом с именем</h2><p>Автоматически определяется только по публичному IP. При необходимости выберите страну вручную.</p></div></div>
+  <div class="country-current">{{ country_flag_icon(node.country_code, node.country_name, "server-country-flag") }}<strong>{{ node.country_name }}</strong><small>{{ 'Ручной выбор' if node.country_mode == 'manual' else 'Определено автоматически по публичному IP' }}</small></div>
+  <form method="post" action="{{ url_for('node_country_update', node_id=node.id) }}" class="node-country-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Код страны (ISO, две буквы)<input name="country_code" value="{{ node.country_code }}" maxlength="2" placeholder="DE"></label>
+    <button class="button secondary" type="submit" name="mode" value="manual">Сохранить вручную</button>
+    <button class="button" type="submit" name="mode" value="auto">Определить автоматически</button>
+    <small>Примеры: DE — Германия, US — США, FR — Франция. Пустое значение показывает нейтральный значок 🌐.</small>
+  </form>
+</section>
+
+<section class="panel-card node-metrics-card">
+  <div class="card-heading"><div><span class="section-kicker">РЕСУРСЫ</span><h2>Текущая нагрузка</h2><p>Последние метрики, переданные SG-Node Agent.</p></div></div>
+  <div class="node-metric-grid">
+    <div><span>CPU</span><strong>{{ '%.1f'|format(node.cpu_percent) }}%</strong><meter min="0" max="100" value="{{ node.cpu_percent }}"></meter></div>
+    <div><span>RAM</span><strong>{{ '%.1f'|format(node.memory_percent) }}%</strong><meter min="0" max="100" value="{{ node.memory_percent }}"></meter></div>
+    <div><span>Диск</span><strong>{{ '%.1f'|format(node.disk_percent) }}%</strong><meter min="0" max="100" value="{{ node.disk_percent }}"></meter></div>
+    <div><span>Load 1m</span><strong>{{ '%.2f'|format(node.load1) }}</strong><small>средняя нагрузка</small></div>
+  </div>
+</section>
+
+<section class="panel-card node-clients-card">
+  <div class="card-heading"><div><span class="section-kicker">КЛИЕНТЫ</span><h2>{{ 'Подключения через Controller' if node.is_local else 'Подключения через эту SG-Node' }}</h2><p>Клиенты создаются и управляются в едином разделе Clients. Cluster отвечает только за серверы.</p></div><span class="status-badge {{ 'success' if node_clients|length else '' }}">{{ node_clients|length }} {{ 'клиент' if node_clients|length == 1 else 'клиентов' }}</span></div>
+  {% if not node.is_local %}
+  <div class="node-runtime-strip">
+    <div><span>Endpoint клиентов</span><strong><code>{{ node.public_ipv4 or node.public_host or 'адрес ещё не получен' }}:585</code></strong></div>
+    <div><span>Рабочая сеть awg0</span><strong><code>{{ node.awg_runtime.server_network if node.awg_runtime else 'ещё не получена' }}</code></strong></div>
+    <div><span>Реальный UDP-порт</span><strong class="{{ 'beta9-good' if node.awg_runtime and node.awg_runtime.listen_port == 585 else 'beta9-bad' }}">{{ node.awg_runtime.listen_port if node.awg_runtime else '—' }}</strong></div>
+  </div>
+  {% endif %}
+  {% if node_clients %}
+  <div class="node-client-list">
+    {% for client in node_clients[:6] %}<a href="{{ url_for('clients_page', client=client.id, server=('controller' if node.is_local else node.id)) }}"><span><b>{{ client.name }}</b><small>{{ client.address }}</small></span><em class="status-badge {{ 'success' if client.deployment_ready and client.effective_enabled else ('danger' if client.deployment_state == 'error' else 'warning') }}">{{ 'Активен' if client.deployment_ready and client.effective_enabled else ('Ошибка' if client.deployment_state == 'error' else 'Применяется') }}</em></a>{% endfor %}
+  </div>
+  {% else %}<div class="empty-state compact"><h3>Клиентов на этом сервере пока нет</h3><p>Нажмите «Добавить клиента». Сервер уже будет выбран.</p></div>{% endif %}
+  <div class="node-client-actions">
+    {% if node.is_local or (node.effective_state == 'online' and node.awg_runtime and node.awg_runtime.listen_port == 585 and node.awg_runtime.public_key and node.awg_runtime.server_network) %}<a class="button primary" href="{{ url_for('clients_page', node=node.id, open='add') }}">Добавить клиента</a>{% else %}<button class="button primary" type="button" disabled>Добавить клиента</button>{% endif %}
+    <a class="button secondary" href="{{ url_for('clients_page', server=('controller' if node.is_local else node.id)) }}">Показать клиентов</a>
+  </div>
+  {% if not node.is_local and node.effective_state == 'online' and (not node.awg_runtime or node.awg_runtime.listen_port != 585) %}<div class="alert error"><b>Клиентов создавать нельзя.</b> SG-Node должна подтвердить работающий awg0 на обычном UDP-порту 585. Нажмите «Обновить состояние» или соберите диагностику.</div>{% endif %}
+</section>
+
+{% if not node.is_local %}
+<section class="panel-card node-actions-card">
+  <div class="card-heading"><div><span class="section-kicker">ДЕЙСТВИЯ</span><h2>Безопасное управление</h2><p>Controller передаёт только фиксированные задания. Произвольный shell недоступен.</p></div></div>
+  <div class="node-action-grid">
+    {% for kind, label, description in [
+      ('refresh','Обновить состояние','Запросить новые метрики, службы и реальный awg0'),
+      ('diagnostics','Собрать диагностику','Версии, интерфейсы и журналы служб'),
+      ('restart_awg','Перезапустить AWG','Перезапустить только AmneziaWG runtime'),
+      ('restart_traffic','Перезапустить Traffic','Пересобрать правила маршрутизации'),
+      ('restart_nginx','Перезапустить Nginx','Перезапустить веб-прокси ноды')
+    ] %}
+    <form method="post" action="{{ url_for('node_job_create', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="{{ kind }}"><button class="node-action-button" type="submit"><b>{{ label }}</b><small>{{ description }}</small></button></form>
+    {% endfor %}
+  </div>
+  <div class="node-admin-actions">
+    <form method="post" action="{{ url_for('node_renew', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit">Создать новую команду подключения</button></form>
+    <form method="post" action="{{ url_for('node_toggle', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button warning" type="submit">{{ 'Включить SG-Node' if node.effective_state == 'disabled' else 'Отключить SG-Node' }}</button></form>
+    <form method="post" action="{{ url_for('node_delete', node_id=node.id) }}" data-confirm-title="Удалить SG-Node из Cluster?" data-confirm-message="Запись SG-Node и история заданий будут удалены. Перед новым подключением выполните полный uninstall на сервере Node." data-confirm-action="Удалить SG-Node" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Удалить</button></form>
+  </div>
+</section>
+
+<section class="panel-card node-jobs-card">
+  <div class="card-heading"><div><span class="section-kicker">ЗАДАНИЯ</span><h2>Последние операции</h2></div></div>
+  <div class="node-job-list">
+    {% for job in jobs %}<article><span>#{{ job.id }}</span><b>{{ job.kind }}</b><small>{{ job.created_at }}</small><em class="status-badge {{ 'success' if job.state == 'success' else ('danger' if job.state == 'error' else 'warning') }}">{{ job.state }}</em>{% if job.result.message %}<p>{{ job.result.message }}</p>{% endif %}</article>{% else %}<div class="empty-state compact">Заданий пока нет.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+<script>
+(() => {
+  document.querySelectorAll('[data-copy-target]').forEach((button) => button.addEventListener('click', async () => {
+    const node = document.getElementById(button.dataset.copyTarget); const value = node?.textContent || ''; const original = button.textContent;
+    try { if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value); else { const area=document.createElement('textarea'); area.value=value; area.style.position='fixed'; area.style.opacity='0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); } button.textContent='✓ Скопировано'; } catch (_) { button.textContent='Выделите и нажмите Ctrl+C'; }
+    setTimeout(() => { button.textContent=original; }, 2400);
+  }));
+  {% if not node.is_local and node.effective_state == 'pending' and not one_time_command %}setTimeout(() => window.location.reload(), 5000);{% endif %}
+})();
+</script>
+{% endblock %}

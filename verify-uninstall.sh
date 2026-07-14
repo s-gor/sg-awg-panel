@@ -89,7 +89,7 @@ fi
 
 mapfile -t panel_processes < <(
   ps -eo pid=,args= \
-    | awk '/\/opt\/sg-awg-panel|python(3)? -m awgpanel|waitress-serve.*awgpanel/ && $0 !~ /awk/ {print}'
+    | awk '/\/opt\/sg-awg-panel|\/opt\/sg-awg-node|python(3)? -m awgpanel|waitress-serve.*awgpanel/ && $0 !~ /awk/ {print}'
 )
 if ((${#panel_processes[@]})); then
   fail 'Остались процессы SG-AWG-Panel:'
@@ -104,6 +104,11 @@ for path in \
   /opt/sg-awg-panel \
   /etc/sg-awg-panel \
   /var/lib/sg-awg-panel \
+  /opt/sg-awg-node \
+  /etc/sg-awg-node \
+  /var/lib/sg-awg-node \
+  /usr/local/lib/sg-awg-panel \
+  /etc/systemd/system/sg-awg-node-agent.service \
   /root/sg-awg-panel-backups \
   /etc/amnezia/amneziawg \
   /var/www/sg-awg-panel-acme \
@@ -145,6 +150,12 @@ else
   ok 'Интерфейс awg0 отсутствует'
 fi
 
+if ip link show sgcascade >/dev/null 2>&1; then
+  fail 'Интерфейс sgcascade всё ещё существует'
+else
+  ok 'Интерфейс sgcascade отсутствует'
+fi
+
 mapfile -t outbound_interfaces < <(
   ip -o link show 2>/dev/null \
     | awk -F': ' '$2 ~ /^sgo[0-9]+(@.*)?$/ {sub(/@.*/, "", $2); print $2}'
@@ -182,6 +193,11 @@ if command -v nft >/dev/null 2>&1; then
   else
     ok 'nftables-таблицы SG-AWG-Panel отсутствуют'
   fi
+  if grep -Eq 'table (inet|ip) sg_awg_node_(filter|nat|cascade|cascade_nat)' <<<"$nft_ruleset"; then
+    fail 'Остались nftables-таблицы SG-Node'
+  else
+    ok 'nftables-таблицы SG-Node отсутствуют'
+  fi
 else
   ok 'Команда nft отсутствует вместе с удалённым пакетом nftables'
 fi
@@ -198,6 +214,12 @@ else
   ok 'Policy rules SG-AWG-Panel отсутствуют'
 fi
 
+if ip rule show 2>/dev/null | grep -Eq '(^|[[:space:]])13050:'; then
+  fail 'Остался policy rule SG-Node с приоритетом 13050'
+else
+  ok 'Policy rule SG-Node 13050 отсутствует'
+fi
+
 route_tables_left=()
 for table in $(seq 21001 21032); do
   if ip route show table "$table" 2>/dev/null | grep -q .; then
@@ -208,6 +230,12 @@ if ((${#route_tables_left[@]})); then
   fail "Остались таблицы маршрутизации: ${route_tables_left[*]}"
 else
   ok 'Таблицы маршрутизации SG-AWG-Panel пусты'
+fi
+
+if ip route show table 23000 2>/dev/null | grep -q .; then
+  fail 'Таблица маршрутизации SG-Node 23000 не пуста'
+else
+  ok 'Таблица маршрутизации SG-Node 23000 пуста'
 fi
 
 section '6/8. Порты и сетевые параметры'
@@ -316,5 +344,5 @@ if (( FAILURES > 0 )); then
   exit 1
 fi
 
-echo '[SG-AWG-Panel Audit] [OK] Следов SG-AWG-Panel и установленных ею компонентов не найдено.'
+echo '[SG-AWG-Panel Audit] [OK] Следов SG-AWG-Panel, SG-Node Agent и подключений Cluster не найдено.'
 exit 0

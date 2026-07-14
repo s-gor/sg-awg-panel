@@ -9,9 +9,9 @@
   <nav class="client-tabs" aria-label="Разделы клиента">
     <a class="active" href="{{ url_for('client_edit', client_id=client.id) }}">Основное</a>
     {% if client.effective_enabled %}<a href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% else %}<span title="Клиент отключён или срок истёк">Конфигурация</span>{% endif %}
-    <a href="{{ url_for('traffic_rules_page', tab='rules') }}">Traffic Rules</a>
+    {% if not client.node_id %}<a href="{{ url_for('traffic_rules_page', tab='rules') }}">Traffic Rules</a>{% endif %}
     <a href="#statistics">Статистика</a>
-    <a href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>
+    {% if not client.node_id %}<a href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>{% endif %}
   </nav>
 
   <section class="client-profile-summary">
@@ -28,6 +28,7 @@
     </article>
 
     <div class="client-profile-kpis" id="statistics">
+      <article><span>Сервер</span><strong>{{ country_flag_icon(client.server_country_code, client.server_country_name) }} {{ client.server_name }}</strong><small>{{ client.server_address }}:{{ 585 if client.node_id else settings.listen_port }}</small></article>
       <article><span>Адрес</span><strong><code>{{ client.address }}</code></strong></article>
       <article><span>Handshake</span><strong>{{ client.latest_handshake_text or '—' }}</strong></article>
       <article><span>Получено</span><strong>{{ client.rx_text or '0 B' }}</strong></article>
@@ -37,10 +38,12 @@
     </div>
   </section>
 
+  {% if client.node_id and client.deployment_state == 'queued' %}<div class="beta9-note"><b>Agent применяет изменения на {{ country_flag_icon(client.server_country_code, client.server_country_name) }} {{ client.server_name }}</b><span>Конфигурация станет доступна после проверки реального awg0, UDP-порта 585 и peer клиента.</span></div>{% elif client.node_id and client.deployment_state == 'error' %}<div class="alert error"><b>Изменения не применены на {{ country_flag_icon(client.server_country_code, client.server_country_name) }} {{ client.server_name }}.</b> {{ client.deployment_error or 'Откройте SG-Node в Cluster и соберите диагностику.' }}</div>{% endif %}
+
   <section class="ui-card ui-card-form">
     <header class="ui-card-heading ui-card-heading-row">
-      <div><p class="panel-kicker">ОСНОВНЫЕ ПАРАМЕТРЫ</p><h2>Настройки клиента</h2><p>DNS настраивается автоматически для работы доменных правил. Пустой MTU наследуется от AWG Server.</p></div>
-      <div class="ui-heading-actions"><a class="button secondary" href="{{ url_for('client_edit', client_id=client.id) }}">Форма</a><a class="button ghost json-action" href="{{ url_for('client_json_page', client_id=client.id) }}">{ } JSON</a></div>
+      <div><p class="panel-kicker">ОСНОВНЫЕ ПАРАМЕТРЫ</p><h2>Настройки клиента</h2><p>{% if client.node_id %}Изменения безопасно передаются Agent и становятся активными только после проверки peer на {{ client.server_name }}.{% else %}DNS настраивается автоматически для работы доменных правил. Пустой MTU наследуется от AWG Server.{% endif %}</p></div>
+      <div class="ui-heading-actions"><a class="button secondary" href="{{ url_for('client_edit', client_id=client.id) }}">Форма</a>{% if not client.node_id %}<a class="button ghost json-action" href="{{ url_for('client_json_page', client_id=client.id) }}">{ } JSON</a>{% endif %}</div>
     </header>
     <form method="post" action="{{ url_for('client_edit', client_id=client.id) }}" class="ui-form" data-expiry-scope>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -71,7 +74,7 @@
         </div>
       </fieldset>
 
-      <div class="ui-actions"><button class="button primary" type="submit">Сохранить и применить</button><a class="button ghost" href="{{ url_for('clients_page') }}">Назад к клиентам</a>{% if client.effective_enabled %}<a class="button secondary" href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% endif %}</div>
+      <div class="ui-actions"><button class="button primary" type="submit">Сохранить и применить</button><a class="button ghost" href="{{ url_for('clients_page', server=(client.node_id if client.node_id else 'controller'), client=client.id) }}">Назад к клиентам</a>{% if client.effective_enabled and client.deployment_ready %}<a class="button secondary" href="{{ url_for('client_access', client_id=client.id) }}">Конфигурация</a>{% endif %}</div>
     </form>
     <div class="ui-info-note"><span>i</span><p>Если срок истёк, клиент автоматически возвращается в <code>awg0</code> после продления. Если клиент отключён вручную, продление не включает его автоматически.</p></div>
   </section>
@@ -80,8 +83,8 @@
     <header class="ui-card-heading"><div><p class="panel-kicker">УПРАВЛЕНИЕ ДОСТУПОМ</p><h2>Ручное состояние</h2><p>Ручное отключение действует независимо от календаря.</p></div></header>
     <div class="client-danger-actions">
       <form method="post" action="{{ url_for('client_toggle', client_id=client.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit">{{ 'Отключить клиента' if client.enabled else 'Включить клиента' }}</button></form>
-      <form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" onsubmit="return confirm('Пересоздать ключи? Старый файл и подключение перестанут работать.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Пересоздать ключи</button></form>
-      <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" onsubmit="return confirm('Удалить клиента {{ client.name|e }} без возможности восстановления?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Удалить клиента</button></form>
+      <form method="post" action="{{ url_for('client_regenerate', client_id=client.id) }}" data-confirm-title="Пересоздать ключи клиента?" data-confirm-message="Старый файл конфигурации и текущее подключение перестанут работать. Потребуется заново выдать клиенту новый профиль." data-confirm-action="Пересоздать ключи" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Пересоздать ключи</button></form>
+      <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" data-confirm-title="Удалить клиента {{ client.name|e }}?" data-confirm-message="Клиент, его ключи и персональная ссылка будут удалены без возможности восстановления." data-confirm-action="Удалить клиента" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Удалить клиента</button></form>
     </div>
   </section>
 </div>

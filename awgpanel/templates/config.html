@@ -2,7 +2,7 @@
 {% block title %}AWG Server — JSON — SG-AWG-Panel{% endblock %}
 {% block section %}AWG SERVER / JSON{% endblock %}
 {% block heading %}AWG Server{% endblock %}
-{% block subtitle %}Полный редактируемый JSON и единый центр просмотра конфигураций{% endblock %}
+{% block subtitle %}Полный редактируемый JSON и фактические системные файлы{% endblock %}
 {% block content %}
 <nav class="beta9-tabs" aria-label="Разделы AWG Server">
   <a href="{{ url_for('server_page') }}">Server</a>
@@ -11,7 +11,7 @@
 
 <div class="json-hub-tabs" role="tablist" aria-label="JSON">
   <button class="active" type="button" data-json-hub-tab="full" aria-selected="true">Full JSON <small>Редактирование всей системы</small></button>
-  <button type="button" data-json-hub-tab="generated" aria-selected="false">Generated Config <small>JSON разделов и файлы Linux</small></button>
+  <button type="button" data-json-hub-tab="generated" aria-selected="false">System Files <small>Фактические файлы служб Linux</small></button>
 </div>
 
 <section class="ui-card json-hub-panel active" data-json-hub-panel="full">
@@ -43,7 +43,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="config-editor-toolbar">
           <div class="config-toolbar-group"><button class="button ghost" type="button" data-format-json>Форматировать</button><button class="button secondary" type="submit" name="action" value="validate">Проверить JSON</button><a class="button secondary" href="{{ url_for('config_page') }}#full-json">Синхронизировать</a></div>
-          <div class="config-toolbar-group config-toolbar-primary"><button class="button ghost" type="button" data-cancel-config-edit>Отменить</button><a class="button ghost" href="{{ url_for('config_download') }}">Скачать</a><button class="button primary" id="save-full-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }} onclick="return confirm('Применить проверенный Full JSON? Перед изменениями будет создана резервная копия.')">Сохранить и применить</button></div>
+          <div class="config-toolbar-group config-toolbar-primary"><button class="button ghost" type="button" data-cancel-config-edit>Отменить</button><a class="button ghost" href="{{ url_for('config_download') }}">Скачать</a><button class="button primary" id="save-full-json" type="submit" name="action" value="save" data-json-save {{ 'disabled' if not validation_passed else '' }} data-confirm-title="Применить Full JSON?" data-confirm-message="Проверенный JSON заменит рабочую конфигурацию. Перед изменениями будет автоматически создана резервная копия." data-confirm-action="Сохранить и применить" data-confirm-tone="warning">Сохранить и применить</button></div>
         </div>
         <label class="json-editor-label" for="json_config">Full JSON</label>
         <textarea id="json_config" name="json_config" class="json-editor json-editor-tall" spellcheck="false" autocomplete="off" data-json-editor-input>{{ current_json }}</textarea>
@@ -56,29 +56,20 @@
 
 <section class="ui-card json-hub-panel generated-config-card" data-json-hub-panel="generated" hidden>
   <header class="ui-card-heading ui-card-heading-row config-panel-heading">
-    <div><p class="panel-kicker">CONFIG OVERVIEW</p><h2>Generated Config</h2><p>Слева — логические JSON разделов. Справа — фактические файлы, созданные для Linux. Всё только для чтения.</p></div>
+    <div><p class="panel-kicker">SYSTEM FILES</p><h2>System Files</h2><p>Файлы конфигурации, созданные панелью и используемые системными службами. Только чтение, копирование и скачивание.</p></div>
     <span class="config-state-badge readonly">ТОЛЬКО ЧТЕНИЕ</span>
   </header>
   <div class="generated-config-hub">
     <aside class="generated-config-index">
-      <div class="generated-config-group"><h3>Section JSON</h3><p>Текущие фрагменты конфигурации.</p>
-        {% for key, item in section_json.items() %}<button type="button" class="generated-config-item {{ 'active' if loop.first else '' }}" data-config-view="section-{{ key }}"><strong>{{ item.title }}</strong><small>{{ item.filename }}</small></button>{% endfor %}
-      </div>
-      <div class="generated-config-group"><h3>Generated system config</h3><p>Файлы, которые используют службы Linux.</p>
-        {% for key, item in generated.items() %}<button type="button" class="generated-config-item" data-config-view="system-{{ key }}"><strong>{{ item.title }}</strong><small>{{ item.filename }}</small></button>{% endfor %}
+      <div class="generated-config-group"><h3>Активные конфигурации</h3><p>Фактические файлы AmneziaWG, Nginx, Traffic Rules и systemd.</p>
+        {% for key, item in generated.items() %}<button type="button" class="generated-config-item {{ 'active' if loop.first else '' }}" data-config-view="system-{{ key }}"><strong>{{ item.title }}</strong><small>{{ item.filename }}</small></button>{% endfor %}
       </div>
     </aside>
     <div class="generated-config-viewer">
-      {% for key, item in section_json.items() %}
-      <article class="generated-config-pane {{ 'active' if loop.first else '' }}" data-config-content="section-{{ key }}">
-        <header><div><span>SECTION JSON</span><h3>{{ item.title }}</h3><code>{{ item.filename }}</code></div><div class="beta9-inline-actions"><a class="button small ghost" href="{{ item.edit_url }}">Перейти к разделу</a><button class="button small ghost" type="button" data-copy-target="section-json-{{ key }}">Копировать</button><a class="button small secondary" href="{{ url_for('section_json_download', kind=key) }}">Скачать</a></div></header>
-        <pre id="section-json-{{ key }}">{{ item.content }}</pre>
-      </article>
-      {% endfor %}
       {% for key, item in generated.items() %}
-      <article class="generated-config-pane" data-config-content="system-{{ key }}">
-        <header><div><span>GENERATED SYSTEM CONFIG</span><h3>{{ item.title }}</h3><code>{{ item.filename }}</code></div><div class="beta9-inline-actions"><button class="button small ghost" type="button" data-copy-target="system-config-{{ key }}">Копировать</button><a class="button small secondary" href="{{ url_for('generated_config_download', kind=key) }}">Скачать</a></div></header>
-        <pre id="system-config-{{ key }}">{{ item.content or 'Конфигурация ещё не создана.' }}</pre>
+      <article class="generated-config-pane {{ 'active' if loop.first else '' }}" data-config-content="system-{{ key }}">
+        <header><div><span>SYSTEM FILE</span><h3>{{ item.title }}</h3><code>{{ item.filename }}</code></div><div class="beta9-inline-actions"><button class="button small ghost" type="button" data-copy-target="system-config-{{ key }}">Копировать</button><a class="button small secondary" href="{{ url_for('generated_config_download', kind=key) }}">Скачать</a></div></header>
+        <pre id="system-config-{{ key }}">{{ item.content or 'Файл ещё не создан.' }}</pre>
       </article>
       {% endfor %}
     </div>
@@ -103,7 +94,7 @@
   const editor=document.getElementById('json_config');
   const initial=editor?.value||'';
   document.querySelector('[data-start-config-edit]')?.addEventListener('click',()=>{workspace?.classList.add('is-editing');editor?.focus();});
-  document.querySelector('[data-cancel-config-edit]')?.addEventListener('click',()=>{if(editor&&editor.value!==initial&&!confirm('Отбросить несохранённые изменения?'))return;if(editor)editor.value=initial;workspace?.classList.remove('is-editing');});
+  document.querySelector('[data-cancel-config-edit]')?.addEventListener('click',async()=>{if(editor&&editor.value!==initial){const accepted=await window.sgDialog.ask({title:'Отбросить несохранённые изменения?',message:'Текст Full JSON вернётся к последней загруженной версии.',confirmText:'Отбросить изменения',tone:'warning'});if(!accepted)return;}if(editor)editor.value=initial;workspace?.classList.remove('is-editing');});
   const save=document.getElementById('save-full-json');
   const title=document.getElementById('config-validation-title');
   const text=document.getElementById('config-validation-text');

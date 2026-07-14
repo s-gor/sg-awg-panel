@@ -37,24 +37,32 @@ run_logged() {
   local started=$SECONDS
   local pid frame_index=0 elapsed
   local frames='|/-\\'
+  local green='' red='' reset=''
+  if [[ -z "${NO_COLOR:-}" ]]; then
+    green=$'\033[1;32m'
+    red=$'\033[1;31m'
+    reset=$'\033[0m'
+  fi
 
   "$@" >>"$INSTALL_LOG" 2>&1 &
   pid=$!
 
   while kill -0 "$pid" 2>/dev/null; do
     elapsed=$((SECONDS - started))
-    printf '\r[SG-AWG-Panel] [%s] %s (%s сек)' \
-      "${frames:frame_index%4:1}" "$label" "$elapsed"
+    printf '\r%s[SG-AWG-Panel] [%s]%s %s (%s сек)' \
+      "$green" "${frames:frame_index%4:1}" "$reset" "$label" "$elapsed"
     frame_index=$((frame_index + 1))
     sleep 0.25
   done
 
   if wait "$pid"; then
     elapsed=$((SECONDS - started))
-    printf '\r[SG-AWG-Panel] [OK] %s (%s сек)\033[K\n' "$label" "$elapsed"
+    printf '\r%s[SG-AWG-Panel] [OK]%s %s (%s сек)\033[K\n' \
+      "$green" "$reset" "$label" "$elapsed"
   else
     elapsed=$((SECONDS - started))
-    printf '\r[SG-AWG-Panel] [ОШИБКА] %s (%s сек)\033[K\n' "$label" "$elapsed" >&2
+    printf '\r%s[SG-AWG-Panel] [ОШИБКА]%s %s (%s сек)\033[K\n' \
+      "$red" "$reset" "$label" "$elapsed" >&2
     install_fail "$label"
   fi
 }
@@ -95,6 +103,33 @@ prompt_admin_password() {
   repeated=""
   export AWGPANEL_ADMIN_PASSWORD
   printf '\n' >/dev/tty
+}
+
+prompt_instance_name() {
+  local default_name="${1:-SG-AWG-Panel}" value=""
+
+  if [[ -n "${AWGPANEL_INSTANCE_NAME:-}" ]]; then
+    (( ${#AWGPANEL_INSTANCE_NAME} <= 64 )) \
+      || install_fail "имя сервера должно содержать не более 64 символов"
+    export AWGPANEL_INSTANCE_NAME
+    return 0
+  fi
+
+  [[ -r /dev/tty && -w /dev/tty ]] \
+    || install_fail "для ввода имени сервера требуется обычная SSH-сессия"
+
+  while true; do
+    IFS= read -r -p "Имя этого сервера [${default_name}]: " value </dev/tty
+    value="${value:-$default_name}"
+    if [[ -z "$value" || ${#value} -gt 64 || "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+      printf 'Имя должно содержать от 1 до 64 обычных символов.\n\n' >/dev/tty
+      continue
+    fi
+    AWGPANEL_INSTANCE_NAME="$value"
+    export AWGPANEL_INSTANCE_NAME
+    printf '\n' >/dev/tty
+    return 0
+  done
 }
 
 validate_public_port() {

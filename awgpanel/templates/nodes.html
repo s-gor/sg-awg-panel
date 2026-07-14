@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Cluster · SG-AWG-Panel{% endblock %}
+{% block section %}CLUSTER{% endblock %}
+{% block heading %}Cluster{% endblock %}
+{% block subtitle %}Controller и дополнительные SG-Node с собственным AmneziaWG runtime{% endblock %}
+{% block body_class %}ui-standard-page cluster-page{% endblock %}
+{% block content %}
+{% set remote_nodes = nodes|rejectattr('is_local')|list %}
+{% set pending_nodes = remote_nodes|rejectattr('effective_state', 'equalto', 'online')|list %}
+{% set online_nodes = remote_nodes|selectattr('effective_state', 'equalto', 'online')|list %}
+{% set has_node = remote_nodes|length > 0 %}
+{% set has_online = online_nodes|length > 0 %}
+{% set has_client = summary.clients|int > 0 %}
+{% set first_online = online_nodes|first %}
+
+<section class="panel-card cluster-controller-identity">
+  <div><span class="section-kicker">CONTROLLER · ТЕКУЩИЙ СЕРВЕР ПАНЕЛИ</span><h2>{{ country_flag_icon(layout_country_code, layout_country_code|country_name) }} {{ layout_instance_name }}</h2><p>{{ layout_server_address }} · это имя используется в шапке, Clients и Cascade.</p></div>
+  <button class="button primary" type="button" data-open-server-rename>Переименовать Controller</button>
+</section>
+
+<section class="panel-card cluster-intro-card">
+  <div class="card-heading"><div><span class="section-kicker">ПРОСТОЕ ПОДКЛЮЧЕНИЕ</span><h2>Подключить SG-Node</h2><p>Установите Node, задайте имя, сразу скопируйте одну команду и дождитесь статуса «В сети». Скрытых действий нет.</p></div><a class="help-dot" href="{{ url_for('help_page') }}#cluster">?</a></div>
+</section>
+
+<section class="cluster-wizard cluster-wizard-v210">
+  <article class="cluster-wizard-step {{ 'done' if has_node else 'current' }}" id="cluster-step-1">
+    <div class="cluster-step-number">{{ '✓' if has_node else '1' }}</div>
+    <div class="cluster-step-body">
+      <span class="section-kicker">ШАГ 1</span>
+      <h2>Установить SG-Node</h2>
+      <p>Выполните эту команду на отдельной чистой Ubuntu 24.04 и дождитесь завершения. Установятся Agent, AmneziaWG, Nginx и все зависимости.</p>
+      <div class="copy-command-row cluster-command-row"><code id="node-install-command">{{ install_command }}</code><button class="button secondary" type="button" data-copy-target="node-install-command" data-copy-label="Скопировать команду установки">Скопировать команду установки</button></div>
+      <small>GitHub на Node не нужен. Рабочий AmneziaWG использует обычный UDP-порт 585.</small>
+    </div>
+  </article>
+
+  <article class="cluster-wizard-step {{ 'done' if has_online else 'current' }}" id="cluster-step-2">
+    <div class="cluster-step-number">{{ '✓' if has_online else '2' }}</div>
+    <div class="cluster-step-body">
+      <span class="section-kicker">ШАГ 2</span>
+      <h2>Добавить SG-Node и получить команду</h2>
+      <p>Введите понятное имя. Панель сразу покажет одноразовую команду подключения на 30 минут.</p>
+      <form method="post" action="{{ url_for('node_create') }}" class="cluster-simple-create-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Имя SG-Node<input name="name" maxlength="96" required placeholder="Например: CC2-Node"></label>
+        <button class="button primary" type="submit">Добавить и показать команду</button>
+      </form>
+      <small>IP и порт вручную вводить не нужно. Если SG-Node с таким именем уже существует, новая запись не создаётся — панель выдаст новую команду для неё.</small>
+
+      {% if one_time_command and one_time_node %}
+      <div class="cluster-inline-command" id="cluster-connect-command">
+        <div class="cluster-inline-command-heading"><span class="status-badge warning">Действует 30 минут</span><div><b>Команда подключения для {{ country_flag_icon(one_time_node.country_code, one_time_node.country_name) }} {{ one_time_node.name }}</b><small>Выполните её на уже установленной SG-Node.</small></div></div>
+        <div class="copy-command-row"><code id="node-connect-command">{{ one_time_command }}</code><button class="button primary" type="button" data-copy-target="node-connect-command" data-copy-label="Копировать команду подключения">Копировать команду подключения</button></div>
+        <div class="cluster-command-next"><b>После сообщения «Подключение завершено. Agent active» вернитесь сюда.</b><span>Страница автоматически покажет SG-Node в сети.</span></div>
+      </div>
+      {% elif pending_nodes %}
+      <div class="cluster-pending-direct-actions">
+        <b>Уже добавленные SG-Node, которые ждут подключения</b>
+        {% for node in pending_nodes %}
+        <div class="cluster-pending-direct-row">
+          <span>{{ country_flag_icon(node.country_code, node.country_name) }} <strong>{{ node.name }}</strong><small>{{ 'Команда истекла или ещё не была выполнена' if node.effective_state == 'pending' else 'Связь с Agent не подтверждена' }}</small></span>
+          <form method="post" action="{{ url_for('node_renew', node_id=node.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="cluster">
+            <button class="button primary" type="submit">Создать команду подключения</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="cluster-wizard-step {{ 'done' if has_online else 'current' if has_node else 'locked' }}" id="cluster-step-3">
+    <div class="cluster-step-number">{{ '✓' if has_online else '3' }}</div>
+    <div class="cluster-step-body">
+      <span class="section-kicker">ШАГ 3</span>
+      <h2>Дождаться статуса «В сети»</h2>
+      <p>После выполнения команды Agent сам передаст публичный адрес, версии, службы и heartbeat. Дополнительно ничего вводить не нужно.</p>
+      {% if remote_nodes %}
+      <div class="cluster-connect-status-list">
+        {% for node in remote_nodes %}
+        <div class="cluster-connect-status-row">
+          <span class="cluster-node-icon">N</span>
+          <div><b>{{ country_flag_icon(node.country_code, node.country_name) }} {{ node.name }}</b><small>{{ node.public_ipv4 or node.public_host or 'адрес будет получен от Agent' }}{% if node.last_seen_at %} · heartbeat {{ node.last_seen_at }}{% endif %}</small></div>
+          <em class="status-badge {{ 'success' if node.effective_state == 'online' else ('warning' if node.effective_state == 'pending' else 'danger') }}">{{ {'online':'В сети','pending':'Ожидает подключения','offline':'Нет связи','error':'Ошибка','disabled':'Отключена'}.get(node.effective_state,node.effective_state) }}</em>
+          {% if node.effective_state == 'online' %}<a class="button secondary" href="{{ url_for('node_detail_page', node_id=node.id) }}">Открыть SG-Node</a>{% else %}
+          <form method="post" action="{{ url_for('node_renew', node_id=node.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="cluster"><button class="button secondary" type="submit">Показать новую команду</button></form>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty-state compact">Сначала установите SG-Node и добавьте её в шаге 2.</div>{% endif %}
+    </div>
+  </article>
+
+  <article class="cluster-wizard-step {{ 'done' if has_client else 'current' if has_online else 'locked' }}" id="cluster-step-4">
+    <div class="cluster-step-number">{{ '✓' if has_client else '4' }}</div>
+    <div class="cluster-step-body">
+      <span class="section-kicker">ШАГ 4</span>
+      <h2>{{ 'Клиент SG-Node создан' if has_client else 'Добавить клиента' }}</h2>
+      <p>Откройте обычный раздел Clients, нажмите «Добавить клиента» и выберите подключённую SG-Node как сервер подключения.</p>
+      {% if first_online %}<a class="button primary" href="{{ url_for('clients_page', node=first_online.id, open='add') }}">Добавить клиента на {{ first_online.name }}</a>{% endif %}
+      {% if has_client %}<div class="cluster-step-success">✓ В общем разделе Clients есть активный клиент SG-Node.</div>{% endif %}
+    </div>
+  </article>
+</section>
+
+<section class="cluster-summary-grid cluster-summary-five">
+  <article class="cluster-stat"><span>Всего серверов</span><strong>{{ summary.total }}</strong><small>Controller и SG-Node</small></article>
+  <article class="cluster-stat success"><span>В сети</span><strong>{{ summary.online }}</strong><small>Heartbeat подтверждён</small></article>
+  <article class="cluster-stat warning"><span>Ожидают подключения</span><strong>{{ summary.pending }}</strong><small>Нужна команда из шага 2</small></article>
+  <article class="cluster-stat danger"><span>Нет связи</span><strong>{{ summary.offline }}</strong><small>Требуют проверки</small></article>
+  <article class="cluster-stat"><span>Клиенты SG-Node</span><strong>{{ summary.clients }}</strong><small>В общем разделе Clients</small></article>
+</section>
+
+<section class="panel-card cluster-list-card">
+  <div class="card-heading"><div><span class="section-kicker">СЕРВЕРЫ</span><h2>Controller и SG-Node</h2><p>Здесь находятся состояние, диагностика и клиенты каждого сервера.</p></div></div>
+  <div class="cluster-node-cards">
+    {% for node in nodes %}
+    <article class="cluster-node-card {{ 'controller' if node.is_local else '' }}">
+      <a class="cluster-node-card-link" href="{{ url_for('node_detail_page', node_id=node.id) }}">
+        <header><span class="cluster-node-icon {{ 'controller' if node.is_local else '' }}">{{ 'C' if node.is_local else 'N' }}</span><div><b>{{ country_flag_icon(node.country_code, node.country_name, "server-country-flag") }} {{ node.name }}</b><small>{{ 'Текущий сервер панели' if node.is_local else 'Удалённая SG-Node' }}</small></div><em class="status-badge {{ 'success' if node.effective_state == 'online' else ('warning' if node.effective_state == 'pending' else 'danger') }}">{{ {'online':'В сети','pending':'Ожидает','offline':'Нет связи','error':'Ошибка','disabled':'Отключена'}.get(node.effective_state,node.effective_state) }}</em></header>
+        <dl><div><dt>Адрес</dt><dd>{{ node.public_ipv4 or node.public_host or 'получит Agent' }}</dd></div><div><dt>AWG</dt><dd>{{ 'локальный Controller' if node.is_local else node.service_awg }}</dd></div><div><dt>UDP-порт</dt><dd>{{ '585' if node.is_local else (node.awg_runtime.listen_port if node.awg_runtime else '—') }}</dd></div><div><dt>RAM</dt><dd>{{ '%.1f'|format(node.memory_percent) }}%</dd></div><div><dt>Диск</dt><dd>{{ '%.1f'|format(node.disk_percent) }}%</dd></div><div><dt>Клиенты</dt><dd>{{ node.client_count }}</dd></div></dl>
+      </a>
+      <footer class="cluster-node-card-actions"><a href="{{ url_for('node_detail_page', node_id=node.id) }}">{{ 'Открыть Controller' if node.is_local else 'Открыть SG-Node' }} →</a>{% if node.is_local %}<button type="button" data-open-server-rename>Переименовать сервер</button>{% else %}<a href="{{ url_for('node_detail_page', node_id=node.id) }}#rename-server">Переименовать SG-Node</a>{% endif %}</footer>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+<script>
+(() => {
+  const copy = async (button) => {
+    const node = document.getElementById(button.dataset.copyTarget);
+    const value = node?.textContent || '';
+    const original = button.dataset.copyLabel || button.textContent;
+    try {
+      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+      else {
+        const area = document.createElement('textarea');
+        area.value = value; area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+      }
+      button.textContent = '✓ Команда скопирована'; button.classList.add('copy-success');
+    } catch (_) { button.textContent = 'Выделите и нажмите Ctrl+C'; }
+    setTimeout(() => { button.textContent = original; button.classList.remove('copy-success'); }, 2800);
+  };
+  document.querySelectorAll('[data-copy-target]').forEach((button) => button.addEventListener('click', () => copy(button)));
+  {% if one_time_command %}document.getElementById('cluster-connect-command')?.scrollIntoView({behavior:'smooth', block:'center'});{% endif %}
+  {% if one_time_node %}
+  const statusUrl = {{ url_for('node_status_json', node_id=one_time_node.id)|tojson }};
+  const readyUrl = {{ (url_for('nodes_page') ~ '#cluster-step-3')|tojson }};
+  const timer = setInterval(async () => {
+    try {
+      const response = await fetch(statusUrl, {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+      const data = await response.json();
+      if (data.ok && (data.online || data.state === 'online')) {
+        clearInterval(timer);
+        window.location.replace(readyUrl);
+      }
+    } catch (_) { /* keep the command visible and retry */ }
+  }, 5000);
+  {% endif %}
+})();
+</script>
+{% endblock %}

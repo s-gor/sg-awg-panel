@@ -21,11 +21,16 @@
         <h1>{{ client.name }}</h1>
         <p>Выберите один способ. Файл и скопированный текст содержат одну и ту же конфигурацию.</p>
       </header>
-      <div class="public-config-actions">
+      <div class="public-config-actions public-config-actions-three">
         <a class="button primary wide" href="{{ url_for('public_client_download', token=token) }}">Скачать .conf</a>
         <button class="button secondary wide" type="button" data-copy-public-config>Копировать конфигурацию</button>
+        <a class="button secondary wide" href="{{ url_for('public_client_subscription', token=token) }}">Открыть подписку</a>
       </div>
-      <div class="ui-info-note"><span>i</span><p><strong>Импорт в AmneziaWG:</strong> выберите импорт из файла или вставьте скопированный текст целиком.</p></div>
+      <details class="public-qr-details">
+        <summary>Показать QR-код для AmneziaWG</summary>
+        <div class="client-qr-frame"><img src="{{ url_for('public_client_qr', token=token) }}" alt="QR-код конфигурации {{ client.name }}"></div>
+      </details>
+      <div class="ui-info-note"><span>i</span><p><strong>Импорт в AmneziaWG:</strong> скачайте файл, вставьте текст или отсканируйте QR-код. Имя профиля: <strong>{{ client.name }}</strong>.</p></div>
       <details class="public-config-details">
         <summary>Показать полный текст</summary>
         <textarea id="public-config-text" class="config-box" rows="22" readonly>{{ config_text }}</textarea>

@@ -381,14 +381,17 @@ def render_nftables_script(
     # (rather than by client address) is what allows ordered rules to override
     # the client's default route without opening an accidental текущий сервер fallback.
     lines.extend(str(item) for item in policy_guards)
-    lines.append(f"    meta mark 0x{int(block_mark):x} drop")
+    lines.append(
+        f'    iifname "{inbound_interface}" meta mark 0x{int(block_mark):x} drop'
+    )
     seen_guard_marks: set[int] = set()
     for _address, mark, outbound_interface in marked:
         if mark in seen_guard_marks:
             continue
         seen_guard_marks.add(mark)
         lines.append(
-            f'    meta mark 0x{mark:x} oifname != "{outbound_interface}" drop'
+            f'    iifname "{inbound_interface}" meta mark 0x{mark:x} '
+            f'oifname != "{outbound_interface}" drop'
         )
     if dns_block_dot:
         lines.append(f'    iifname "{inbound_interface}" tcp dport 853 reject')

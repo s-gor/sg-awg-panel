@@ -49,7 +49,7 @@
       <div><span>Адрес</span><strong>{{ public_url if panel.manage_placeholder else 'заглушка не управляется панелью' }}</strong></div>
       <div><span>Nginx</span><strong><a href="{{ url_for('config_page') }}#generated-config">Просмотреть конфигурацию</a></strong></div>
     </div>
-    <form method="post" onsubmit="return confirm('Восстановить стандартную страницу-заглушку?')">
+    <form method="post" data-confirm-title="Восстановить стандартную заглушку?" data-confirm-message="Текущий HTML страницы-заглушки будет заменён стандартным вариантом SG-AWG-Panel." data-confirm-action="Восстановить заглушку" data-confirm-tone="warning">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="reset">
       <button class="button danger" type="submit">Восстановить стандартную</button>

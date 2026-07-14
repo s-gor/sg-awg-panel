@@ -34,6 +34,7 @@ PLACEHOLDER_PATH = Path(os.environ.get("AWGPANEL_PLACEHOLDER_PATH", "/var/www/sg
 PLACEHOLDER_MAX_BYTES = 256 * 1024
 _PUBLIC_IP_CACHE: tuple[str, float] = ("", 0.0)
 AWG_NAME_RE = re.compile(r"^[A-Za-z0-9А-Яа-яЁё_. -]{1,64}$")
+CASCADE_SYSTEM_ROLE = "cascade_exit"
 
 
 def _run(
@@ -358,14 +359,25 @@ def client_is_effectively_enabled(client: object, *, now: datetime | None = None
     return bool(client_lifecycle(client, now=now)["effective_enabled"])
 
 
-def list_awg_clients(*, enabled_only: bool = False):
+def list_awg_clients(
+    *, enabled_only: bool = False, local_only: bool = False, node_id: int | None = None
+):
     init_db()
-    query = "SELECT * FROM awg_clients"
+    clauses: list[str] = []
+    parameters: list[object] = []
     if enabled_only:
-        query += f" WHERE {ACTIVE_CLIENT_SQL}"
+        clauses.append(ACTIVE_CLIENT_SQL)
+    if local_only:
+        clauses.append("node_id IS NULL")
+    elif node_id is not None:
+        clauses.append("node_id=?")
+        parameters.append(int(node_id))
+    query = "SELECT * FROM awg_clients"
+    if clauses:
+        query += " WHERE " + " AND ".join(f"({clause})" for clause in clauses)
     query += " ORDER BY id"
     with connect() as con:
-        return con.execute(query).fetchall()
+        return con.execute(query, parameters).fetchall()
 
 
 def find_awg_client(client_id: int):
@@ -708,7 +720,9 @@ def _server_address(settings) -> str:
 
 def _next_client_address(settings) -> str:
     network = ipaddress.ip_network(settings["server_network"], strict=True)
-    used = {str(row["address"]).split("/", 1)[0] for row in list_awg_clients()}
+    with connect() as con:
+        rows = con.execute("SELECT address FROM awg_clients WHERE node_id IS NULL").fetchall()
+    used = {str(row["address"]).split("/", 1)[0] for row in rows}
     hosts = network.hosts()
     next(hosts, None)  # server gets the first usable address
     for host in hosts:
@@ -744,6 +758,7 @@ def render_awg_server_config() -> str:
         raise AWGPanelError("AmneziaWG ещё не настроен")
     ext = settings["external_interface"]
     interface_name = settings["interface_name"]
+    clients = [row for row in list_awg_clients(enabled_only=True) if not row["node_id"]]
     up_commands: list[str] = []
     down_commands: list[str] = []
     if bool(settings["isolate_clients"]):
@@ -758,12 +773,19 @@ def render_awg_server_config() -> str:
         f"iptables -D FORWARD -o {interface_name} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT",
     ])
     if bool(settings["nat_enabled"]):
-        up_commands.append(
-            f"iptables -t nat -A POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE"
-        )
-        down_commands.append(
-            f"iptables -t nat -D POSTROUTING -s {settings['server_network']} -o {ext} -j MASQUERADE"
-        )
+        nat_sources = [str(settings["server_network"])]
+        for client in clients:
+            if str(client["system_role"] or "") == CASCADE_SYSTEM_ROLE or str(client["system_role"] or "").startswith("cascade_exit_"):
+                source = str(client["address"] or "").strip()
+                if source and source not in nat_sources:
+                    nat_sources.append(source)
+        for source in nat_sources:
+            up_commands.append(
+                f"iptables -t nat -A POSTROUTING -s {source} -o {ext} -j MASQUERADE"
+            )
+            down_commands.append(
+                f"iptables -t nat -D POSTROUTING -s {source} -o {ext} -j MASQUERADE"
+            )
     lines = [
         "[Interface]",
         f"Address = {_server_address(settings)}",
@@ -775,7 +797,7 @@ def render_awg_server_config() -> str:
         "PostUp = " + "; ".join(up_commands),
         "PostDown = " + "; ".join(down_commands),
     ]
-    for client in list_awg_clients(enabled_only=True):
+    for client in clients:
         peer_routes = [str(client["address"])]
         advertised = str(client["advertised_networks"] or "").strip()
         if advertised:
@@ -793,9 +815,22 @@ def render_awg_server_config() -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _client_profile_name(client, panel=None) -> str:
+    panel = panel or get_panel_settings()
+    instance = str(panel["instance_name"] or "SG-AWG-Panel").strip()
+    client_name = str(client["name"] or "AmneziaWG").strip()
+    if not instance or instance.casefold() == "sg-awg-panel":
+        return client_name
+    return f"{instance}/{client_name}"
+
+
 def render_awg_client_config(client_id: int) -> str:
     settings = get_awg_settings()
     client = find_awg_client(client_id)
+    panel = get_panel_settings()
+    if client["node_id"]:
+        from .node_clients import render_remote_client_config
+        return render_remote_client_config(client)
     if not settings["configured"]:
         raise AWGPanelError("AmneziaWG ещё не настроен")
     lifecycle = client_lifecycle(client)
@@ -824,7 +859,12 @@ def render_awg_client_config(client_id: int) -> str:
             dns_value = str(next(ipaddress.ip_network(str(settings["server_network"]), strict=True).hosts()))
     except Exception:
         pass
+    profile_name = _client_profile_name(client, panel)
     lines = [
+        f"# Name = {profile_name}",
+        f"# Client = {client['name']}",
+        "# Source = SG-AWG-Panel",
+        "",
         "[Interface]",
         f"Address = {client['address']}",
         f"DNS = {dns_value}",
@@ -906,7 +946,8 @@ def validate_awg_settings_document(values: dict[str, object]) -> dict[str, objec
     )
     if str(current["server_network"]) != str(validated["server_network"]):
         network_client_addresses(
-            str(validated["server_network"]), len(list_awg_clients())
+            str(validated["server_network"]),
+            len(list_awg_clients(local_only=True)),
         )
     return validated
 
@@ -914,7 +955,10 @@ def validate_awg_settings_document(values: dict[str, object]) -> dict[str, objec
 def _migrate_client_network(old_network: str, new_network: str) -> None:
     if old_network == new_network:
         return
-    clients = list_awg_clients()
+    clients = [
+        row for row in list_awg_clients(local_only=True)
+        if not str(row["system_role"] or "").strip()
+    ]
     addresses = network_client_addresses(new_network, len(clients))
     with connect() as con:
         for client, address in zip(clients, addresses):
@@ -1053,8 +1097,110 @@ def ensure_default_awg_server() -> dict[str, object]:
     }
 
 
-def add_awg_client(name: str, comment: str = "", expires_at: object | None = None):
+def list_awg_service_clients(system_role: str) -> list[object]:
+    init_db()
+    role = str(system_role or "").strip()
+    if not role:
+        return []
+    with connect() as con:
+        return con.execute(
+            "SELECT * FROM awg_clients WHERE node_id IS NULL AND system_role=? ORDER BY id",
+            (role,),
+        ).fetchall()
+
+
+def add_awg_service_client(
+    name: str,
+    *,
+    address: str,
+    system_role: str,
+    comment: str = "",
+):
+    """Create a managed peer with an explicit /32 address.
+
+    Used for infrastructure links such as Cascade. The peer is deliberately
+    excluded from ordinary access links and expiry workflows.
+    """
     _require_root()
+    settings = get_awg_settings()
+    if not settings["configured"]:
+        raise AWGPanelError("Сначала настройте сервер AmneziaWG")
+    clean_name = str(name or "").strip()
+    if not AWG_NAME_RE.fullmatch(clean_name):
+        raise ValueError("Имя служебного клиента должно содержать от 1 до 64 обычных символов")
+    role = str(system_role or "").strip()[:48]
+    if not re.fullmatch(r"[a-z0-9_-]{2,48}", role):
+        raise ValueError("Некорректная роль служебного клиента")
+    try:
+        interface = ipaddress.ip_interface(str(address or "").strip())
+    except ValueError as exc:
+        raise ValueError("Некорректный адрес служебного клиента") from exc
+    if interface.version != 4 or interface.network.prefixlen != 32:
+        raise ValueError("Служебному клиенту требуется отдельный IPv4 /32")
+    if interface.ip == ipaddress.ip_interface(_server_address(settings)).ip:
+        raise ValueError("Адрес служебного клиента совпадает с адресом сервера")
+
+    backup = _backup_state("service-client-add")
+    try:
+        private_key, public_key = _keypair()
+        preshared_key = _psk()
+        with connect() as con:
+            cursor = con.execute(
+                """
+                INSERT INTO awg_clients
+                    (name, address, private_key, public_key, preshared_key, comment,
+                     allowed_ips, access_token, access_enabled, system_role)
+                VALUES (?, ?, ?, ?, ?, ?, '0.0.0.0/0', '', 0, ?)
+                """,
+                (
+                    clean_name, str(interface), private_key, public_key, preshared_key,
+                    str(comment or "").strip(), role,
+                ),
+            )
+            client_id = int(cursor.lastrowid)
+        _write_server_config()
+        _reload_if_active()
+        _reload_egress_if_available(strict=False)
+        return find_awg_client(client_id)
+    except sqlite3.IntegrityError as exc:
+        _restore_backup(backup)
+        raise AWGPanelError("Служебный клиент с таким именем или адресом уже существует") from exc
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def delete_awg_service_clients(system_role: str) -> list[dict[str, object]]:
+    _require_root()
+    rows = [dict(row) for row in list_awg_service_clients(system_role)]
+    if not rows:
+        return []
+    backup = _backup_state("service-client-delete")
+    try:
+        with connect() as con:
+            con.execute("DELETE FROM awg_clients WHERE system_role=?", (str(system_role),))
+        _write_server_config()
+        _reload_if_active()
+        _reload_egress_if_available(strict=False)
+        return rows
+    except Exception:
+        _restore_backup(backup)
+        raise
+
+
+def add_awg_client(
+    name: str, comment: str = "", expires_at: object | None = None,
+    node_id: int | None = None,
+):
+    _require_root()
+    if node_id:
+        from .node_manager import get_node
+        selected_node = get_node(int(node_id))
+        if not bool(selected_node.get("is_local")):
+            from .node_clients import add_remote_client
+            return add_remote_client(
+                int(node_id), name=name, comment=comment, expires_at=expires_at
+            )
     settings = get_awg_settings()
     if not settings["configured"]:
         raise AWGPanelError("Сначала настройте сервер AmneziaWG")
@@ -1080,6 +1226,26 @@ def add_awg_client(name: str, comment: str = "", expires_at: object | None = Non
                      secrets.token_urlsafe(24), normalized_expiry),
                 )
                 client_id = int(cursor.lastrowid)
+                cascade = con.execute(
+                    """
+                    SELECT link.outbound_id
+                    FROM cascade_links AS link
+                    JOIN cluster_nodes AS entry_node ON entry_node.id=link.entry_node_id
+                    WHERE entry_node.is_local=1 AND link.enabled=1 AND link.state='active'
+                      AND link.outbound_id IS NOT NULL
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if cascade is None:
+                    cascade = con.execute(
+                        "SELECT outbound_id FROM cascade_settings "
+                        "WHERE id=1 AND enabled=1 AND outbound_id IS NOT NULL"
+                    ).fetchone()
+                if cascade is not None:
+                    con.execute(
+                        "UPDATE awg_clients SET egress_mode='outbound', outbound_id=? WHERE id=?",
+                        (int(cascade["outbound_id"]), client_id),
+                    )
         except Exception as exc:
             if "UNIQUE" in str(exc).upper():
                 raise AWGPanelError("Клиент с таким именем уже существует") from exc
@@ -1094,7 +1260,27 @@ def add_awg_client(name: str, comment: str = "", expires_at: object | None = Non
 
 def set_awg_client_enabled(client_id: int, enabled: bool):
     _require_root()
-    find_awg_client(client_id)
+    current = find_awg_client(client_id)
+    if current["node_id"]:
+        previous = int(current["enabled"])
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_clients SET enabled=?, deployment_state='queued', "
+                "deployment_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (1 if enabled else 0, int(client_id)),
+            )
+        try:
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(int(current["node_id"]), target_client_ids=[client_id])
+            return find_awg_client(client_id)
+        except Exception:
+            with connect() as con:
+                con.execute(
+                    "UPDATE awg_clients SET enabled=?, deployment_state='active', "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (previous, int(client_id)),
+                )
+            raise
     backup = _backup_state("client-toggle")
     try:
         with connect() as con:
@@ -1110,11 +1296,30 @@ def set_awg_client_enabled(client_id: int, enabled: bool):
         _restore_backup(backup)
         raise
 
-
 def set_awg_client_expiry(client_id: int, expires_at: object | None):
     _require_root()
-    find_awg_client(client_id)
+    current = find_awg_client(client_id)
     normalized = normalize_client_expiry(expires_at)
+    if current["node_id"]:
+        previous = current["expires_at"]
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_clients SET expires_at=?, deployment_state='queued', "
+                "deployment_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (normalized, int(client_id)),
+            )
+        try:
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(int(current["node_id"]), target_client_ids=[client_id])
+            return find_awg_client(client_id)
+        except Exception:
+            with connect() as con:
+                con.execute(
+                    "UPDATE awg_clients SET expires_at=?, deployment_state='active', "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (previous, int(client_id)),
+                )
+            raise
     backup = _backup_state("client-expiry")
     try:
         with connect() as con:
@@ -1130,11 +1335,10 @@ def set_awg_client_expiry(client_id: int, expires_at: object | None):
         _restore_backup(backup)
         raise
 
-
 def bulk_update_awg_clients(
     client_ids: list[int], *, action: str, expires_at: object | None = None
 ) -> int:
-    """Apply one lifecycle action to selected clients and reload runtime once."""
+    """Apply one lifecycle action and synchronize every affected server."""
     _require_root()
     ids = sorted({int(value) for value in client_ids if int(value) > 0})
     if not ids:
@@ -1143,15 +1347,21 @@ def bulk_update_awg_clients(
         raise ValueError("За одну операцию можно изменить не более 512 клиентов")
     placeholders = ",".join("?" for _ in ids)
     with connect() as con:
-        rows = con.execute(
-            f"SELECT id, expires_at FROM awg_clients WHERE id IN ({placeholders}) ORDER BY id",
-            ids,
-        ).fetchall()
+        rows = [
+            dict(row)
+            for row in con.execute(
+                f"SELECT * FROM awg_clients WHERE id IN ({placeholders}) ORDER BY id",
+                ids,
+            ).fetchall()
+        ]
     if len(rows) != len(ids):
         raise AWGPanelError("Один или несколько выбранных клиентов не найдены")
 
     normalized_action = str(action or "").strip().lower()
     backup = _backup_state("clients-bulk")
+    remote_by_node: dict[int, list[int]] = {}
+    remote_delete_by_node: dict[int, list[int]] = {}
+    local_changed = any(not row.get("node_id") for row in rows)
     try:
         with connect() as con:
             if normalized_action == "enable":
@@ -1181,7 +1391,7 @@ def bulk_update_awg_clients(
                 days = int(normalized_action.split("_", 1)[1])
                 now = _utc_now()
                 for row in rows:
-                    current_expiry = _expiry_datetime(row["expires_at"])
+                    current_expiry = _expiry_datetime(row.get("expires_at"))
                     base = current_expiry if current_expiry and current_expiry > now else now
                     value = normalize_client_expiry(base + timedelta(days=days))
                     con.execute(
@@ -1189,20 +1399,48 @@ def bulk_update_awg_clients(
                         (value, int(row["id"])),
                     )
             elif normalized_action == "delete":
-                con.execute(f"DELETE FROM awg_clients WHERE id IN ({placeholders})", ids)
+                local_ids = [int(row["id"]) for row in rows if not row.get("node_id")]
+                if local_ids:
+                    local_placeholders = ",".join("?" for _ in local_ids)
+                    con.execute(f"DELETE FROM awg_clients WHERE id IN ({local_placeholders})", local_ids)
+                remote_ids = [int(row["id"]) for row in rows if row.get("node_id")]
+                if remote_ids:
+                    remote_placeholders = ",".join("?" for _ in remote_ids)
+                    con.execute(
+                        f"UPDATE awg_clients SET enabled=0, deployment_state='deleting', "
+                        f"updated_at=CURRENT_TIMESTAMP WHERE id IN ({remote_placeholders})",
+                        remote_ids,
+                    )
             else:
                 raise ValueError("Неизвестное массовое действие")
-        _write_server_config()
-        _reload_if_active()
-        _reload_egress_if_available()
+
+        for row in rows:
+            node_id = int(row.get("node_id") or 0)
+            if not node_id:
+                continue
+            remote_by_node.setdefault(node_id, []).append(int(row["id"]))
+            if normalized_action == "delete":
+                remote_delete_by_node.setdefault(node_id, []).append(int(row["id"]))
+
+        if local_changed:
+            _write_server_config()
+            _reload_if_active()
+            _reload_egress_if_available()
+        if remote_by_node:
+            from .node_clients import queue_node_client_sync
+            for node_id, target_ids in remote_by_node.items():
+                queue_node_client_sync(
+                    node_id,
+                    target_client_ids=target_ids,
+                    delete_client_ids=remote_delete_by_node.get(node_id, []),
+                )
         return len(ids)
     except Exception:
         _restore_backup(backup)
         raise
 
-
 def client_expiry_tick() -> dict[str, object]:
-    """Reconcile awg0 and traffic only when time-based access changed."""
+    """Reconcile local and SG-Node peers when time-based access changes."""
     _require_root()
     settings = get_awg_settings()
     clients = list_awg_clients()
@@ -1213,28 +1451,73 @@ def client_expiry_tick() -> dict[str, object]:
         "expired": sum(1 for item in lifecycle if item["expired"]),
         "expiring_soon": sum(1 for item in lifecycle if item["expiring_soon"]),
         "changed": False,
+        "remote_jobs": [],
     }
-    if not bool(settings["configured"]):
-        return result
-    desired = render_awg_server_config()
-    current = AWG_CONFIG_PATH.read_text(encoding="utf-8") if AWG_CONFIG_PATH.exists() else ""
-    if current == desired:
-        return result
-    backup = _backup_state("client-expiry-tick")
-    try:
-        _write_server_config()
-        _reload_if_active()
-        _reload_egress_if_available()
-        result["changed"] = True
-        return result
-    except Exception:
-        _restore_backup(backup)
-        raise
 
+    local_clients = [row for row in clients if not row["node_id"]]
+    if bool(settings["configured"]):
+        desired = render_awg_server_config()
+        current = AWG_CONFIG_PATH.read_text(encoding="utf-8") if AWG_CONFIG_PATH.exists() else ""
+        if current != desired:
+            backup = _backup_state("client-expiry-tick")
+            try:
+                _write_server_config()
+                _reload_if_active()
+                _reload_egress_if_available()
+                result["changed"] = True
+            except Exception:
+                _restore_backup(backup)
+                raise
+
+    remote_by_node: dict[int, list[int]] = {}
+    for row in clients:
+        node_id = int(row["node_id"] or 0)
+        if not node_id or str(row["deployment_state"]) in {"queued", "deleting"}:
+            continue
+        desired_enabled = 1 if client_is_effectively_enabled(row) else 0
+        if desired_enabled != int(row["deployed_enabled"] or 0):
+            remote_by_node.setdefault(node_id, []).append(int(row["id"]))
+    if remote_by_node:
+        from .node_clients import queue_node_client_sync
+        for node_id, target_ids in remote_by_node.items():
+            try:
+                job = queue_node_client_sync(node_id, target_client_ids=target_ids)
+                result["remote_jobs"].append(int(job["id"]))
+                result["changed"] = True
+            except (ValueError, AWGPanelError):
+                # An offline Node will reconcile on the next maintenance tick.
+                continue
+    return result
 
 def regenerate_awg_client(client_id: int):
     _require_root()
-    find_awg_client(client_id)
+    current = find_awg_client(client_id)
+    if current["node_id"]:
+        private_key, public_key = _keypair()
+        preshared_key = _psk()
+        previous = (current["private_key"], current["public_key"], current["preshared_key"])
+        with connect() as con:
+            con.execute(
+                """
+                UPDATE awg_clients
+                SET private_key=?, public_key=?, preshared_key=?, deployment_state='queued',
+                    deployment_error='', updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (private_key, public_key, preshared_key, int(client_id)),
+            )
+        try:
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(int(current["node_id"]), target_client_ids=[client_id])
+            return find_awg_client(client_id)
+        except Exception:
+            with connect() as con:
+                con.execute(
+                    "UPDATE awg_clients SET private_key=?, public_key=?, preshared_key=?, "
+                    "deployment_state='active', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (*previous, int(client_id)),
+                )
+            raise
     backup = _backup_state("client-regenerate")
     try:
         private_key, public_key = _keypair()
@@ -1256,10 +1539,32 @@ def regenerate_awg_client(client_id: int):
         _restore_backup(backup)
         raise
 
-
 def delete_awg_client(client_id: int):
     _require_root()
     client = find_awg_client(client_id)
+    if client["node_id"]:
+        with connect() as con:
+            con.execute(
+                "UPDATE awg_clients SET enabled=0, deployment_state='deleting', "
+                "deployment_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (int(client_id),),
+            )
+        try:
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(
+                int(client["node_id"]),
+                target_client_ids=[client_id],
+                delete_client_ids=[client_id],
+            )
+            return client
+        except Exception:
+            with connect() as con:
+                con.execute(
+                    "UPDATE awg_clients SET enabled=?, deployment_state='active', "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (int(client["enabled"]), int(client_id)),
+                )
+            raise
     backup = _backup_state("client-delete")
     try:
         with connect() as con:
@@ -1272,7 +1577,6 @@ def delete_awg_client(client_id: int):
         _restore_backup(backup)
         raise
 
-
 def update_awg_client_traffic(
     client_id: int,
     allowed_ips: str,
@@ -1284,6 +1588,21 @@ def update_awg_client_traffic(
     _require_root()
     current = find_awg_client(client_id)
     settings = get_awg_settings()
+    remote = bool(current["node_id"])
+    if remote:
+        from .node_clients import require_ready_node
+        _, runtime = require_ready_node(int(current["node_id"]))
+        server_network = str(runtime["server_network"])
+        server_lans = ""
+        same_server_clients = [
+            row for row in list_awg_clients()
+            if int(row["node_id"] or 0) == int(current["node_id"])
+        ]
+    else:
+        server_network = str(settings["server_network"])
+        server_lans = str(settings["server_lan_networks"])
+        same_server_clients = [row for row in list_awg_clients() if not row["node_id"]]
+
     normalized_allowed = _validate_allowed_ips(allowed_ips)
     normalized_excluded = (
         normalize_networks(excluded_ips, allow_empty=True, field="Исключения")
@@ -1295,10 +1614,10 @@ def update_awg_client_traffic(
     else:
         normalized_advertised = validate_advertised_networks(
             advertised_networks,
-            server_network=str(settings["server_network"]),
+            server_network=server_network,
             existing_values=[
                 (int(row["id"]), row["advertised_networks"])
-                for row in list_awg_clients()
+                for row in same_server_clients
             ],
             client_id=client_id,
         )
@@ -1307,9 +1626,52 @@ def update_awg_client_traffic(
         if include_server_lan is None
         else bool(include_server_lan)
     )
-    additional = [str(settings["server_lan_networks"])] if include_lan else []
+    if remote and include_lan:
+        raise ValueError("Сети сервера для клиентов SG-Node пока не объявляются автоматически")
+    additional = [server_lans] if include_lan and server_lans else []
     if not effective_allowed_ips(normalized_allowed, normalized_excluded, additional):
         raise ValueError("После применения исключений у клиента не осталось маршрутов")
+
+    if remote:
+        previous = dict(current)
+        with connect() as con:
+            con.execute(
+                """
+                UPDATE awg_clients
+                SET allowed_ips=?, excluded_ips=?, advertised_networks=?,
+                    include_server_lan=?, deployment_state='queued',
+                    deployment_error='', updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    normalized_allowed,
+                    normalized_excluded,
+                    normalized_advertised,
+                    1 if include_lan else 0,
+                    client_id,
+                ),
+            )
+        try:
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(int(current["node_id"]), target_client_ids=[client_id])
+            return find_awg_client(client_id)
+        except Exception:
+            with connect() as con:
+                con.execute(
+                    """
+                    UPDATE awg_clients SET allowed_ips=?, excluded_ips=?,
+                        advertised_networks=?, include_server_lan=?, deployment_state=?,
+                        deployment_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
+                    """,
+                    (
+                        previous["allowed_ips"], previous["excluded_ips"],
+                        previous["advertised_networks"], previous["include_server_lan"],
+                        previous["deployment_state"], previous["deployment_error"],
+                        int(client_id),
+                    ),
+                )
+            raise
+
     backup = _backup_state("client-traffic")
     try:
         with connect() as con:
@@ -1345,9 +1707,6 @@ def update_awg_client_settings(
     normalized_name = name.strip()
     if not AWG_NAME_RE.fullmatch(normalized_name):
         raise ValueError("Имя клиента должно содержать от 1 до 64 обычных символов")
-    # Client configurations always use the private текущий сервер DNS address.
-    # Per-client DNS values from older forms/JSON are accepted but normalized
-    # away so domain rules cannot be bypassed accidentally.
     normalized_dns = ""
     normalized_mtu: int | None = None
     if mtu.strip():
@@ -1355,6 +1714,46 @@ def update_awg_client_settings(
         if not 576 <= normalized_mtu <= 1500:
             raise ValueError("MTU клиента должен быть от 576 до 1500")
     normalized_expiry = normalize_client_expiry(expires_at)
+
+    if current["node_id"]:
+        previous = dict(current)
+        try:
+            with connect() as con:
+                con.execute(
+                    """
+                    UPDATE awg_clients
+                    SET name=?, comment=?, dns_servers=?, mtu=?, expires_at=?,
+                        deployment_state='queued', deployment_error='',
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                    """,
+                    (
+                        normalized_name, comment.strip(), normalized_dns, normalized_mtu,
+                        normalized_expiry, int(client_id),
+                    ),
+                )
+            from .node_clients import queue_node_client_sync
+            queue_node_client_sync(int(current["node_id"]), target_client_ids=[client_id])
+            return find_awg_client(int(client_id))
+        except Exception as exc:
+            with connect() as con:
+                con.execute(
+                    """
+                    UPDATE awg_clients SET name=?, comment=?, dns_servers=?, mtu=?,
+                        expires_at=?, deployment_state=?, deployment_error=?,
+                        updated_at=CURRENT_TIMESTAMP WHERE id=?
+                    """,
+                    (
+                        previous["name"], previous["comment"], previous["dns_servers"],
+                        previous["mtu"], previous["expires_at"],
+                        previous["deployment_state"], previous["deployment_error"],
+                        int(client_id),
+                    ),
+                )
+            if "UNIQUE" in str(exc).upper():
+                raise AWGPanelError("Клиент с таким именем уже существует") from exc
+            raise
+
     backup = _backup_state("client-settings")
     try:
         with connect() as con:
@@ -1422,7 +1821,7 @@ def validate_awg_client_document(
         server_network=str(settings["server_network"]),
         existing_values=[
             (int(row["id"]), row["advertised_networks"])
-            for row in list_awg_clients()
+            for row in list_awg_clients(local_only=True)
         ],
         client_id=client_id,
     )
@@ -1532,7 +1931,7 @@ def validate_traffic_document(
         field="Сети сервера",
     )
 
-    existing_clients = list_awg_clients()
+    existing_clients = list_awg_clients(local_only=True)
     expected_ids = {int(row["id"]) for row in existing_clients}
     supplied_ids = {int(item["id"]) for item in client_values}
     if supplied_ids != expected_ids:
@@ -1646,7 +2045,7 @@ def update_traffic_document(
         _reload_egress_if_available()
         return {
             "settings": get_awg_settings(),
-            "clients": list_awg_clients(),
+            "clients": list_awg_clients(local_only=True),
         }
     except Exception:
         _restore_backup(backup)
@@ -2484,14 +2883,53 @@ def get_awg_overview() -> dict[str, object]:
     installed = bool(_command_path("awg") and _command_path("awg-quick"))
     module_loaded = Path("/sys/module/amneziawg").exists()
     state = awg_service_state() if installed else "not-installed"
-    stats = _peer_stats() if state == "active" else {}
+    local_stats = _peer_stats() if state == "active" else {}
     clients: list[dict[str, object]] = []
+    from .node_manager import list_nodes
+    known_nodes = list_nodes()
+    node_cache: dict[int, dict[str, object]] = {
+        int(node["id"]): node for node in known_nodes if not node.get("is_local")
+    }
+    local_node = next((node for node in known_nodes if node.get("is_local")), {})
     for row in list_awg_clients():
+        if str(row["system_role"] or "").strip():
+            continue
         item = dict(row)
-        item.update(stats.get(row["public_key"], {"latest_handshake": 0, "rx": 0, "tx": 0}))
+        node_id = int(item.get("node_id") or 0)
+        if node_id:
+            from .node_clients import remote_peer_stats
+            from .node_manager import get_node
+            stats = remote_peer_stats(item)
+            node = node_cache.get(node_id)
+            if node is None:
+                node = get_node(node_id)
+                node_cache[node_id] = node
+            item["server_name"] = str(node.get("name") or f"SG-Node #{node_id}")
+            item["server_address"] = str(node.get("public_ipv4") or node.get("public_host") or "")
+            item["server_type"] = "node"
+            item["server_online"] = bool(node.get("online"))
+            item["server_country_code"] = str(node.get("country_code") or "")
+            item["server_country_flag"] = str(node.get("country_flag") or "🌐")
+            item["server_country_name"] = str(node.get("country_name") or "Страна не определена")
+        else:
+            stats = local_stats.get(
+                row["public_key"], {"latest_handshake": 0, "rx": 0, "tx": 0}
+            )
+            item["server_name"] = str(local_node.get("name") or "Controller")
+            item["server_address"] = str(settings["endpoint_host"] or local_node.get("public_host") or "")
+            item["server_type"] = "controller"
+            item["server_online"] = state == "active"
+            item["server_country_code"] = str(local_node.get("country_code") or "")
+            item["server_country_flag"] = str(local_node.get("country_flag") or "🌐")
+            item["server_country_name"] = str(local_node.get("country_name") or "Страна не определена")
+        item.update(stats)
         item.update(client_lifecycle(item))
+        item["deployment_ready"] = (
+            not node_id or str(item.get("deployment_state") or "active") == "active"
+        )
         item["online"] = bool(
-            item["effective_enabled"]
+            item["deployment_ready"]
+            and item["effective_enabled"]
             and int(item["latest_handshake"]) > 0
             and time.time() - int(item["latest_handshake"]) < 180
         )
@@ -2504,12 +2942,7 @@ def get_awg_overview() -> dict[str, object]:
     endpoint_detected = "" if settings["endpoint_host"] else detect_public_ipv4()
     total_rx = sum(int(item["rx"]) for item in clients)
     total_tx = sum(int(item["tx"]) for item in clients)
-    active_clients = sum(
-        1 for item in clients
-        if bool(item["effective_enabled"])
-        and int(item["latest_handshake"]) > 0
-        and time.time() - int(item["latest_handshake"]) < 180
-    )
+    active_clients = sum(1 for item in clients if bool(item["online"]))
     backups = list_backups(limit=1)
     return {
         "installed": installed,
@@ -2564,6 +2997,31 @@ def get_panel_settings():
     if row is None:
         raise AWGPanelError("Настройки панели не найдены")
     return row
+
+
+def configure_instance_name(instance_name: object):
+    _require_root()
+    name = str(instance_name or "").strip()
+    if not name:
+        raise ValueError("Укажите имя сервера")
+    if len(name) > 64:
+        raise ValueError("Имя сервера должно содержать не более 64 символов")
+    if any(ord(ch) < 32 for ch in name):
+        raise ValueError("Имя сервера содержит недопустимые символы")
+    with connect() as con:
+        con.execute(
+            "UPDATE panel_settings SET instance_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            (name,),
+        )
+        # Keep the local Controller identity synchronized immediately.  The
+        # next page render should never show the new name in the header and the
+        # old name in Cluster or Clients.
+        con.execute(
+            "UPDATE cluster_nodes SET name=?, updated_at=CURRENT_TIMESTAMP WHERE is_local=1",
+            (name,),
+        )
+    write_env_values({"AWGPANEL_INSTANCE_NAME": name})
+    return get_panel_settings()
 
 
 def _backup_keep_value() -> int:

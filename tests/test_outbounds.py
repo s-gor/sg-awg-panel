@@ -179,6 +179,11 @@ def test_apply_builds_outbound_route_and_nftables(tmp_path, monkeypatch):
     assert any(call[:2] == ["/usr/bin/awg-quick", "strip"] for call in calls)
     assert any(call[:2] == ["/usr/bin/awg-quick", "up"] for call in calls)
     assert any(call[:4] == ["/usr/bin/ip", "route", "replace", "default"] for call in calls)
+    assert any(
+        call[:4] == ["/usr/bin/ip", "route", "replace", "10.77.0.0/24"]
+        and "awg0" in call and "table" in call
+        for call in calls
+    )
     assert any(call[:3] == ["/usr/bin/ip", "rule", "add"] for call in calls)
     assert any(call[:3] == ["/usr/bin/nft", "-c", "-f"] for call in calls)
     assert egress.NFT_SCRIPT_PATH.exists()

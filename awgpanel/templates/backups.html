@@ -59,7 +59,7 @@
       <td class="right"><details class="beta9-actions-menu"><summary>⋯</summary><div class="beta9-actions-popover">
         <a href="{{ url_for('backup_download', name=backup.name) }}">Скачать</a>
         <form method="post" action="{{ url_for('backup_verify', name=backup.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Проверить</button></form>
-        <form method="post" action="{{ url_for('backup_restore', name=backup.name) }}" onsubmit="return confirm('Восстановить эту копию? Текущее состояние будет сохранено отдельно.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit" {{ 'disabled' if not backup.verified else '' }}>Восстановить</button></form>
+        <form method="post" action="{{ url_for('backup_restore', name=backup.name) }}" data-confirm-title="Восстановить резервную копию?" data-confirm-message="Текущее состояние будет автоматически сохранено отдельно. После восстановления конфигурация и клиенты вернутся к состоянию этой копии." data-confirm-action="Восстановить копию" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit" {{ 'disabled' if not backup.verified else '' }}>Восстановить</button></form>
         <div class="beta9-backup-technical"><span>Техническое имя</span><code>{{ backup.name }}</code></div>
       </div></details></td>
     </tr>

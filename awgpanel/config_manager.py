@@ -163,7 +163,7 @@ def _normalize_domain(value: object, *, required: bool) -> str:
 def panel_config_document() -> str:
     init_db()
     settings = get_awg_settings()
-    clients = list_awg_clients()
+    clients = list_awg_clients(local_only=True)
     panel = get_panel_settings()
     outbounds = list_outbounds()
 
@@ -235,7 +235,7 @@ def parse_panel_config_document(text: str) -> dict[str, object]:
     if meta.get("secrets", "$KEEP") != "$KEEP":
         raise ValueError(f"{META_KEY}.secrets должен оставаться $KEEP")
 
-    current_clients = {int(row["id"]): row for row in list_awg_clients()}
+    current_clients = {int(row["id"]): row for row in list_awg_clients(local_only=True)}
     current_outbounds = {int(row["id"]): row for row in list_outbounds()}
 
     server_obj = _mapping(document.get("server"), "server")
@@ -409,7 +409,7 @@ def validate_panel_config_document(text: str) -> dict[str, object]:
 
 def section_json_configs() -> dict[str, dict[str, str]]:
     settings = get_awg_settings()
-    clients = list_awg_clients()
+    clients = list_awg_clients(local_only=True)
     panel = get_panel_settings()
     outbounds = list_outbounds()
     clients_doc = {

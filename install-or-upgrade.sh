@@ -20,6 +20,7 @@ require_supported_architecture
 require_no_pending_reboot
 
 if [[ ! -f "$ENV_FILE" ]]; then
+  prompt_instance_name "SG-AWG-Panel"
   prompt_admin_password "$PASSWORD_MIN_LENGTH"
   prompt_public_port 62443
 fi
@@ -43,7 +44,7 @@ run_logged "Подготовка пакетной системы..." dpkg --conf
 run_logged "Обновление списка пакетов..." apt-get -o Dpkg::Use-Pty=0 update -qq
 run_logged "Установка Python, Nginx и зависимостей панели..." \
   env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Dpkg::Use-Pty=0 install -y -qq \
-  python3 python3-venv python3-pip rsync ca-certificates nginx curl tar psmisc nftables iproute2 dnsmasq
+  python3 python3-venv python3-pip rsync ca-certificates nginx curl tar psmisc nftables conntrack iproute2 util-linux dnsmasq
 
 # dnsmasq is panel-managed and must not listen on public interfaces before
 # the panel binds automatic DNS routing to the private AWG server address.
@@ -105,6 +106,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   cat > "$ENV_FILE" <<ENVEOF
 AWGPANEL_SECRET_KEY=$SECRET_KEY
 AWGPANEL_PASSWORD_HASH=$PASSWORD_HASH
+AWGPANEL_INSTANCE_NAME=SG-AWG-Panel
 AWGPANEL_ENV_FILE=/etc/sg-awg-panel/web.env
 AWGPANEL_BIND_ADDRESS=127.0.0.1
 AWGPANEL_PORT=18080
@@ -131,6 +133,27 @@ AWGPANEL_OPERATION_JOBS_DIR=/var/lib/sg-awg-panel/operation-jobs
 AWGPANEL_PROJECT_DIR=/opt/sg-awg-panel
 ENVEOF
   chmod 600 "$ENV_FILE"
+  AWGPANEL_INSTANCE_NAME_VALUE="${AWGPANEL_INSTANCE_NAME:-SG-AWG-Panel}" python3 - "$ENV_FILE" <<'PYINSTANCE'
+from pathlib import Path
+import os
+import shlex
+import sys
+
+path = Path(sys.argv[1])
+value = os.environ.get("AWGPANEL_INSTANCE_NAME_VALUE", "SG-AWG-Panel")
+lines = path.read_text(encoding="utf-8").splitlines()
+out = []
+replaced = False
+for line in lines:
+    if line.startswith("AWGPANEL_INSTANCE_NAME="):
+        out.append("AWGPANEL_INSTANCE_NAME=" + shlex.quote(value))
+        replaced = True
+    else:
+        out.append(line)
+if not replaced:
+    out.append("AWGPANEL_INSTANCE_NAME=" + shlex.quote(value))
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PYINSTANCE
 fi
 unset AWGPANEL_ADMIN_PASSWORD || true
 
@@ -143,14 +166,17 @@ PUBLIC_PORT="$(get_env AWGPANEL_PUBLIC_PORT 62443)"
 PUBLIC_SCHEME="$(get_env AWGPANEL_PUBLIC_SCHEME http)"
 PUBLIC_HOST="$(get_env AWGPANEL_PUBLIC_HOST '')"
 MANAGE_PLACEHOLDER="$(get_env AWGPANEL_MANAGE_PLACEHOLDER 1)"
+INSTANCE_NAME="$(get_env AWGPANEL_INSTANCE_NAME SG-AWG-Panel)"
 
-python3 - "$ENV_FILE" "$PUBLIC_PORT" "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$MANAGE_PLACEHOLDER" <<'PYENV'
+python3 - "$ENV_FILE" "$PUBLIC_PORT" "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$MANAGE_PLACEHOLDER" "$INSTANCE_NAME" <<'PYENV'
 from pathlib import Path
+import shlex
 import sys
 
 path = Path(sys.argv[1])
-public_port, scheme, host, manage_placeholder = sys.argv[2:]
+public_port, scheme, host, manage_placeholder, instance_name = sys.argv[2:]
 updates = {
+    "AWGPANEL_INSTANCE_NAME": shlex.quote(instance_name),
     "AWGPANEL_BIND_ADDRESS": "127.0.0.1",
     "AWGPANEL_PORT": "18080",
     "AWGPANEL_BACKEND_PORT": "18080",
@@ -194,6 +220,7 @@ PUBLIC_SCHEME_SYNC="$PUBLIC_SCHEME" \
 PUBLIC_HOST_SYNC="$PUBLIC_HOST" \
 PUBLIC_PORT_SYNC="$PUBLIC_PORT" \
 MANAGE_PLACEHOLDER_SYNC="$MANAGE_PLACEHOLDER" \
+INSTANCE_NAME_SYNC="$INSTANCE_NAME" \
   .venv/bin/python - <<'PYSET'
 import os
 from awgpanel.db import connect
@@ -202,12 +229,13 @@ with connect() as con:
     con.execute(
         """
         UPDATE panel_settings
-        SET public_scheme=?, public_host=?, public_port=?, https_email='',
+        SET instance_name=?, public_scheme=?, public_host=?, public_port=?, https_email='',
             https_enabled=?, manage_placeholder=?, backend_address='127.0.0.1',
             backend_port=18080, updated_at=CURRENT_TIMESTAMP
         WHERE id=1
         """,
         (
+            os.environ["INSTANCE_NAME_SYNC"],
             os.environ["PUBLIC_SCHEME_SYNC"],
             os.environ["PUBLIC_HOST_SYNC"],
             int(os.environ["PUBLIC_PORT_SYNC"]),

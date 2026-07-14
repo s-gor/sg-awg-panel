@@ -11,6 +11,20 @@
   <a class="{{ 'active' if active_tab == 'logs-diagnostics' else '' }}" href="{{ url_for('system_page', tab='logs-diagnostics') }}">Logs &amp; Diagnostics</a>
 </nav>
 
+<section class="beta9-panel server-identity-panel">
+  <div class="beta9-panel-heading">
+    <div><span class="section-kicker">Идентификация сервера · единое имя</span><h2>{{ country_flag_icon(layout_country_code, layout_country_code|country_name) }} {{ layout_instance_name }}</h2><p><b>Переименовать сервер:</b> новое имя синхронно обновит шапку, локальный Controller в Cluster, Clients и Cascade.</p></div>
+    <span class="server-identity-preview">{{ layout_identity_label }}</span>
+  </div>
+  <form class="server-identity-form" method="post" action="{{ url_for('system_identity_update') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="return_tab" value="{{ active_tab }}">
+    <label><span>Имя сервера</span><input name="instance_name" maxlength="64" required value="{{ panel.instance_name }}" placeholder="Например: Frankfurt Entry"></label>
+    <button class="button primary" type="submit">Сохранить новое имя</button>
+  </form>
+  <p class="field-note">Публичный адрес определяется из настроек доступа панели. Имя можно изменить в любое время.</p>
+</section>
+
 {% set os_info = resources.get('os', {}) %}
 {% if active_tab == 'resources' %}
 

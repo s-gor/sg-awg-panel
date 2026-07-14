@@ -128,18 +128,22 @@ def test_panel_port_validation_uses_dynamic_range():
 
 def test_clean_installer_is_fixed_to_beta3_and_reads_tty():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.1.0-rc4"' in text
+    assert 'RELEASE_VERSION="v0.7.0-RC3"' in text
     assert "</dev/tty" in text
     assert "AWGPANEL_ADMIN_PASSWORD" in text
     assert "v0.1.0-alpha8" not in text
     assert "v0.1.0-alpha9" not in text
 
 
-def test_clean_installer_rejects_pending_reboot_and_existing_install():
+def test_clean_installer_rejects_pending_reboot_but_supports_safe_reinstall():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert "/var/run/reboot-required" in text
-    assert "/opt/sg-awg-panel" in text
-    assert "нового чистого EC2" in text
+    assert "panel_installation_is_active" in text
+    assert "cleanup_stale_panel_residue" in text
+    assert "действующая установка SG-AWG-Panel" in text
+    assert "повторная установка после полного удаления" in text
+    assert "Остатки прежней установки удалены" in text
+    assert "backend TCP 18080 занят" in text
 
 
 def test_install_output_is_logged_with_live_progress():
@@ -264,7 +268,7 @@ def test_beta9_server_status_is_simple_and_hides_internal_network_checks():
 
 def test_clean_installer_release_version_is_not_clobbered_by_os_release():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.1.0-rc4"' in text
+    assert 'RELEASE_VERSION="v0.7.0-RC3"' in text
     assert '. /etc/os-release' in text
     assert 'ARCHIVE_URL="https://github.com/${REPOSITORY}/archive/refs/tags/${RELEASE_VERSION}.tar.gz"' in text
     assert 'Загрузка ${RELEASE_VERSION} из GitHub' in text
@@ -341,13 +345,13 @@ def test_rc3_config_is_inside_awg_server_and_empty_settings_page_is_removed():
     assert "<span>Настройки</span>" not in base
     assert not (ROOT / "awgpanel" / "templates" / "settings.html").exists()
     assert "Full JSON" in config
-    assert "Generated Config" in config
+    assert "System Files" in config
     assert "Редактировать JSON" in config
-    assert "Всё только для чтения" in config
+    assert "Только чтение, копирование и скачивание" in config
     assert 'data-json-hub-tab="full"' in config
     assert 'data-json-hub-tab="generated"' in config
-    assert "Section JSON" in config
-    assert "Generated system config" in config
+    assert "Section JSON" not in config
+    assert "Активные конфигурации" in config
     assert "AWG Server" in config and "generated.items()" in config and "generated_config_download" in config
     assert 'name="public_port"' in security
     assert 'min="49152"' in security

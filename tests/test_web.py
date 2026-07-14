@@ -71,7 +71,7 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setattr(web, "get_awg_overview", overview)
     monkeypatch.setattr(web, "get_awg_diagnostics", diagnostics_data)
     monkeypatch.setattr(web, "get_awg_settings", settings)
-    monkeypatch.setattr(web, "list_awg_clients", lambda: [])
+    monkeypatch.setattr(web, "list_awg_clients", lambda *args, **kwargs: [])
     monkeypatch.setattr(web, "list_backups", lambda limit=10: [])
     monkeypatch.setattr(web, "check_for_updates", lambda force=False: {"current":"v0.1.0-alpha8","latest":"v0.1.0-alpha8","available":False,"checked_at":"now","error":""})
     monkeypatch.setattr(web, "get_update_status", lambda: {"state":"idle","log":""})
@@ -140,7 +140,7 @@ def test_ui_uses_unified_readable_geometry_and_muted_blue_accent():
     assert "--bg: #15191f" in css
     assert "--accent: #7b8fa4" in css
     assert "grid-template-columns: 258px minmax(0, 1fr)" in css
-    assert "--content-width: 1080px" in css
+    assert "--content-width: 100%" in css
     assert "font-size: clamp(24px, 1.65vw, 28px)" in css
     assert ".ui-standard-page .page-stack" in css
     assert "table td { font-size: 14.5px; }" in css
@@ -341,7 +341,8 @@ def test_alpha15_templates_do_not_copy_xray_terms():
     assert "Xray" not in combined
     assert "Конфигурация / QR" not in combined
     assert "Конфигурация" in combined
-    assert "QR-код" not in combined
+    assert "QR-код" in combined
+    assert "Персональная подписка" in combined
 
 
 
@@ -454,8 +455,8 @@ def test_config_generated_section_is_explicitly_read_only(tmp_path, monkeypatch)
     )
     login(client)
     text = client.get("/config").get_data(as_text=True)
-    assert "Generated system config" in text
-    assert "Всё только для чтения" in text
+    assert "Активные конфигурации" in text
+    assert "Только чтение, копирование и скачивание" in text
     assert 'data-copy-target="system-config-nginx"' in text
     assert "Сохранить и применить" in text
 
@@ -663,7 +664,7 @@ def test_client_config_and_access_pages_render_clean_titles(tmp_path, monkeypatc
     }
     monkeypatch.setattr(web, "find_awg_client", lambda client_id: row)
     monkeypatch.setattr(web, "render_awg_client_config", lambda client_id: "[Interface]\nAddress = 10.77.0.2/32\n")
-    monkeypatch.setattr(web, "list_awg_clients", lambda: [row])
+    monkeypatch.setattr(web, "list_awg_clients", lambda *args, **kwargs: [row])
     login(client)
 
     response = client.get("/clients/4/config")
@@ -672,7 +673,8 @@ def test_client_config_and_access_pages_render_clean_titles(tmp_path, monkeypatc
     assert "<title>Конфигурация клиента — SG-AWG-Panel</title>" in text
     assert "Скачать .conf" in text
     assert "Копировать конфигурацию" in text
-    assert "QR-код" not in text
+    assert "QR-код" in text
+    assert "Персональная подписка" in text
 
     response = client.get("/access")
     assert response.status_code == 302
@@ -702,7 +704,7 @@ def test_beta3_security_exposes_placeholder_and_nginx_controls(tmp_path, monkeyp
     login(client)
     text = client.get("/security").get_data(as_text=True)
     assert "Изменить заглушку" in text
-    assert "Generated Config" in text
+    assert "System Files" in text
     page = client.get("/security/placeholder")
     assert page.status_code == 200
     assert "Полный HTML" in page.get_data(as_text=True) or "Простая страница" in page.get_data(as_text=True)
@@ -821,7 +823,7 @@ def test_rc3_combined_sections_render_expected_tabs(tmp_path, monkeypatch):
     assert "Разделы AWG Server" in server
     assert "Server" in server and ">JSON</a>" in server
     assert "Разделы AWG Server" in config
-    assert "Full JSON" in config and "Generated Config" in config
+    assert "Full JSON" in config and "System Files" in config
 
 
 def test_rc3_candidate3_traffic_json_rejects_unknown_fields_before_apply(tmp_path, monkeypatch):

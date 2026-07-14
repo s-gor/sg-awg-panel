@@ -32,7 +32,7 @@
         {% if rule.simple_editor %}<a class="button small" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='form') }}">Изменить</a>{% endif %}
         <a class="button small" href="{{ url_for('traffic_rule_edit_page', rule_id=rule.id, view='json') }}">{ } JSON</a>
         <form method="post" action="{{ url_for('traffic_rule_toggle_action', rule_id=rule.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit">{{ 'Отключить' if rule.enabled else 'Включить' }}</button></form>
-        <form method="post" action="{{ url_for('traffic_rule_delete_action', rule_id=rule.id) }}" onsubmit="return confirm('Удалить это правило?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit">Удалить</button></form>
+        <form method="post" action="{{ url_for('traffic_rule_delete_action', rule_id=rule.id) }}" data-confirm-title="Удалить правило Network?" data-confirm-message="Правило будет удалено, а маршрутизация клиентов пересобрана сразу после сохранения." data-confirm-action="Удалить правило" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit">Удалить</button></form>
       </div>
     </article>
     {% endfor %}

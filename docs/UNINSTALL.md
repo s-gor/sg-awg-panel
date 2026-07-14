@@ -1,15 +1,21 @@
-# Полное удаление
+# Полное удаление одной командой
 
-Полный uninstall предназначен для отдельного сервера, где AmneziaWG, Nginx и Certbot не обслуживают другие проекты.
+Ничего скачивать и распаковывать не требуется. Полный uninstall предназначен для отдельного сервера, где AmneziaWG, Nginx и Certbot не обслуживают другие проекты.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-rc4/uninstall.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.7.0-RC3/uninstall.sh | sudo bash
 ```
 
-Подтверждение:
+Команда запросит безопасное подтверждение:
 
 ```text
 DELETE SG-AWG-PANEL COMPLETELY
+```
+
+Для автоматического удаления без вопроса подтверждения (только для отдельного тестового EC2):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.7.0-RC3/uninstall.sh | sudo bash -s -- --yes
 ```
 
 После завершения:
@@ -18,10 +24,25 @@ DELETE SG-AWG-PANEL COMPLETELY
 sudo reboot
 ```
 
+После перезагрузки можно установить свежий архив на тот же EC2. Полный uninstall 206 также удаляет локальную регистрацию SG-Node: Agent, токен, идентификатор, состояние, `sgcascade`, nftables и policy routing. Поэтому прежняя Node не подключится к Controller автоматически после новой установки.
+
+Запись SG-Node хранится на Controller. Для совершенно нового теста удалите её в Cluster; для повторного подключения нажмите «Создать команду подключения» рядом с этой SG-Node.
+
 Read-only аудит:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.1.0-rc4/verify-uninstall.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.7.0-RC3/verify-uninstall.sh | sudo bash
 ```
 
 Аудит не удаляет файлы и не заменяет uninstall.
+
+
+## Сбросить только подключение SG-Node
+
+Если обычный AWG-сервер и его клиенты должны остаться, а нужно удалить только связь с Cluster:
+
+```bash
+sudo bash deploy/uninstall-node-agent.sh
+```
+
+Команда удаляет Agent, токен, имя Node, состояние и служебный Cascade, но сохраняет `awg0`, UDP 585 и обычных клиентов.

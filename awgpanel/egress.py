@@ -10,7 +10,7 @@ import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from . import db
 from .db import connect, init_db
@@ -102,6 +102,72 @@ def _command(name: str) -> str:
     if not path:
         raise AWGPanelError(f"Не найдена системная команда {name}")
     return path
+
+
+def flush_client_connections(addresses: Iterable[object]) -> dict[str, int | bool]:
+    """Drop existing conntrack flows for selected VPN client addresses.
+
+    Routing marks are stored per connection. Removing only the affected
+    clients' flows makes Direct/Outbound changes take effect immediately while
+    leaving every other VPN client untouched.
+    """
+    conntrack = shutil.which("conntrack")
+    unique: list[str] = []
+    for value in addresses:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        try:
+            address = str(ipaddress.ip_interface(text).ip)
+        except ValueError:
+            try:
+                address = str(ipaddress.ip_address(text))
+            except ValueError:
+                continue
+        if address not in unique:
+            unique.append(address)
+    if not conntrack:
+        return {"available": False, "clients": len(unique), "commands": 0}
+    commands = 0
+    selectors = ("--orig-src", "--orig-dst", "--reply-src", "--reply-dst")
+    for address in unique:
+        for selector in selectors:
+            # conntrack exits with code 1 when no matching flow exists; that is
+            # harmless. Checking all four tuple directions also covers NATed
+            # reply traffic and makes the new route effective without
+            # reconnecting the VPN tunnel.
+            _run([conntrack, "-D", "-f", "ipv4", selector, address], timeout=15)
+            commands += 1
+    ip_cmd = shutil.which("ip")
+    if ip_cmd:
+        _run([ip_cmd, "route", "flush", "cache"], timeout=10)
+        commands += 1
+    return {"available": True, "clients": len(unique), "commands": commands}
+
+
+def client_has_marked_connection(address: object, mark: int) -> bool:
+    """Return True when a live client flow carries the expected route mark."""
+    conntrack = shutil.which("conntrack")
+    if not conntrack:
+        return False
+    try:
+        client_ip = str(ipaddress.ip_interface(str(address or "")).ip)
+    except ValueError:
+        return False
+    result = _run(
+        [
+            conntrack,
+            "-L",
+            "-f",
+            "ipv4",
+            "-s",
+            client_ip,
+            "--mark",
+            f"0x{int(mark):x}/0xffffffff",
+        ],
+        timeout=15,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def list_outbounds(*, enabled_only: bool = False):
@@ -273,7 +339,7 @@ def set_outbound_enabled(outbound_id: int, enabled: bool):
             if not enabled:
                 con.execute(
                     "UPDATE awg_clients SET egress_mode='awg_gateway', outbound_id=NULL, "
-                    "updated_at=CURRENT_TIMESTAMP WHERE outbound_id=?",
+                    "updated_at=CURRENT_TIMESTAMP WHERE outbound_id=? AND node_id IS NULL",
                     (int(outbound_id),),
                 )
         return find_outbound(outbound_id)
@@ -289,7 +355,7 @@ def delete_outbound(outbound_id: int):
         with connect() as con:
             con.execute(
                 "UPDATE awg_clients SET egress_mode='awg_gateway', outbound_id=NULL, "
-                "updated_at=CURRENT_TIMESTAMP WHERE outbound_id=?",
+                "updated_at=CURRENT_TIMESTAMP WHERE outbound_id=? AND node_id IS NULL",
                 (int(outbound_id),),
             )
             con.execute("DELETE FROM outbounds WHERE id=?", (int(outbound_id),))
@@ -308,6 +374,23 @@ def set_client_egress(client_id: int, mode: str, outbound_id: int | None = None)
         ).fetchone()
     if client is None:
         raise AWGPanelError("Клиент AmneziaWG не найден")
+    if client["node_id"]:
+        raise ValueError("Network этой панели управляет только клиентами Controller. Для SG-Node маршрутизация настраивается на самой Node")
+    with connect() as con:
+        cascade = con.execute(
+            """
+            SELECT link.id
+            FROM cascade_links AS link
+            JOIN cluster_nodes AS entry_node ON entry_node.id=link.entry_node_id
+            WHERE entry_node.is_local=1 AND link.enabled=1
+              AND link.state IN ('preparing_entry','active')
+            LIMIT 1
+            """
+        ).fetchone()
+    if cascade is not None:
+        raise ValueError(
+            "Маршрутом этого сервера сейчас управляет Cascade. Сначала верните прямой выход в интернет"
+        )
 
     selected_id: int | None = None
     if normalized_mode == "outbound":
@@ -332,7 +415,9 @@ def set_client_egress(client_id: int, mode: str, outbound_id: int | None = None)
                 "SELECT * FROM awg_clients WHERE id=?", (int(client_id),)
             ).fetchone()
 
-    return _mutate_and_apply(mutate)
+    result = _mutate_and_apply(mutate)
+    flush_client_connections([client["address"]])
+    return result
 
 
 def _managed_config_paths() -> list[Path]:
@@ -439,7 +524,7 @@ def _traffic_inputs():
     init_db()
     with connect() as con:
         settings = con.execute("SELECT * FROM awg_settings WHERE id=1").fetchone()
-        clients = con.execute(f"SELECT * FROM awg_clients WHERE {db.ACTIVE_CLIENT_SQL} ORDER BY id").fetchall()
+        clients = con.execute(f"SELECT * FROM awg_clients WHERE node_id IS NULL AND {db.ACTIVE_CLIENT_SQL} ORDER BY id").fetchall()
         profiles = con.execute(
             "SELECT * FROM outbounds WHERE enabled=1 ORDER BY id"
         ).fetchall()
@@ -573,6 +658,7 @@ def _apply_egress_runtime_unlocked() -> dict[str, object]:
             path = configs[outbound_id]
             _run([awg_quick, "up", str(path)], timeout=45, check=True)
             interface_name = interface_name_for(outbound_id)
+            table = str(traffic_table_for(outbound_id))
             _run(
                 [
                     ip,
@@ -582,7 +668,23 @@ def _apply_egress_runtime_unlocked() -> dict[str, object]:
                     "dev",
                     interface_name,
                     "table",
-                    str(traffic_table_for(outbound_id)),
+                    table,
+                ],
+                check=True,
+            )
+            # Reverse packets inherit the connection mark. Keep the local AWG
+            # client network reachable in the same policy table, otherwise the
+            # reply would follow the marked default route back into the outbound.
+            _run(
+                [
+                    ip,
+                    "route",
+                    "replace",
+                    str(settings["server_network"]),
+                    "dev",
+                    str(settings["interface_name"]),
+                    "table",
+                    table,
                 ],
                 check=True,
             )
@@ -729,11 +831,11 @@ def traffic_runtime_status() -> dict[str, object]:
     with connect() as con:
         rows = con.execute(
             "SELECT outbound_id, COUNT(*) AS count FROM awg_clients "
-            f"WHERE egress_mode='outbound' AND outbound_id IS NOT NULL AND {db.ACTIVE_CLIENT_SQL} "
+            f"WHERE node_id IS NULL AND egress_mode='outbound' AND outbound_id IS NOT NULL AND {db.ACTIVE_CLIENT_SQL} "
             "GROUP BY outbound_id"
         ).fetchall()
         blocked = con.execute(
-            f"SELECT COUNT(*) AS count FROM awg_clients WHERE egress_mode='block' AND {db.ACTIVE_CLIENT_SQL}"
+            f"SELECT COUNT(*) AS count FROM awg_clients WHERE node_id IS NULL AND egress_mode='block' AND {db.ACTIVE_CLIENT_SQL}"
         ).fetchone()
     assigned = {int(row["outbound_id"]): int(row["count"]) for row in rows}
     profile_status: list[dict[str, object]] = []

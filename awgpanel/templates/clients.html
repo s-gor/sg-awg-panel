@@ -3,19 +3,19 @@
 {% block body_class %}clients-page{% endblock %}
 {% block section %}CLIENTS{% endblock %}
 {% block heading %}Clients{% endblock %}
-{% block subtitle %}Управление клиентами AmneziaWG{% endblock %}
+{% block subtitle %}Все подключения Controller и SG-Node в одном месте{% endblock %}
 {% block heading_actions %}
 <button class="button primary" type="button" onclick="document.getElementById('add-client-dialog').showModal()">＋ Добавить клиента</button>
 <button class="button" type="button" onclick="document.getElementById('client-links-dialog').showModal()">Выдача конфигураций</button>
 {% endblock %}
 {% block content %}
 <section class="beta9-summary-grid">
-  <a class="beta9-summary-card" href="{{ url_for('server_page') }}">
-    <span>AWG Server</span>
-    <strong class="{{ 'beta9-good' if awg.service_state == 'active' else 'beta9-bad' }}">{{ 'Работает' if awg.service_state == 'active' else 'Остановлен' }}</strong>
-    <small>{{ awg.settings.endpoint_host or awg.public_ipv4_detected }}:{{ awg.settings.listen_port }} · {{ awg.settings.interface_name }}</small>
-    <span class="summary-link">Открыть сервер →</span>
-  </a>
+  <article class="beta9-summary-card">
+    <span>Серверы подключения</span>
+    <strong>{{ client_nodes|selectattr('client_ready')|list|length }} / {{ client_nodes|length }}</strong>
+    <small>Controller и подключённые SG-Node</small>
+    <a class="summary-link" href="{{ url_for('nodes_page') }}">Открыть Cluster →</a>
+  </article>
   <article class="beta9-summary-card">
     <span>Активные клиенты</span>
     <strong>{{ client_stats.active }} / {{ client_stats.total }}</strong>
@@ -24,57 +24,88 @@
   <article class="beta9-summary-card">
     <span>Общий трафик</span>
     <strong><span class="traffic-rx">↓ {{ awg.total_rx_text }}</span><br><span class="traffic-tx">↑ {{ awg.total_tx_text }}</span></strong>
-    <small>По всем клиентам</small>
+    <small>Controller и SG-Node</small>
   </article>
   <a class="beta9-summary-card" href="{{ url_for('traffic_rules_page') }}">
-    <span>Network</span>
+    <span>Network Controller</span>
     <strong class="beta9-good">Работает</strong>
-    <small>Traffic Rules: {{ traffic_rule_count }} · Outbounds: {{ active_outbounds|length }}</small>
+    <small>Правила этой панели: {{ traffic_rule_count }} · Outbounds: {{ active_outbounds|length }}</small>
     <span class="summary-link">Открыть Network →</span>
   </a>
 </section>
 
-<section class="beta9-panel beta9-toolbar">
+<section class="beta9-panel clients-filter-toolbar">
   <form method="get">
-    <input type="search" name="q" value="{{ query }}" placeholder="Поиск по имени, IP или комментарию">
-    <select name="status" aria-label="Состояние клиента">
-      <option value="all" {% if status_filter == 'all' %}selected{% endif %}>Все клиенты</option>
+    <label class="clients-filter-field clients-filter-search"><span>Поиск</span><input type="search" name="q" value="{{ query }}" placeholder="Имя, VPN IP или комментарий"></label>
+    <label class="clients-filter-field clients-filter-server"><span>Сервер</span><div class="flag-select-shell">
+      {{ country_flag_icon('', 'Все серверы', 'flag-select-preview') }}
+      <select name="server" aria-label="Сервер подключения" data-flag-select>
+        <option value="all" data-country="" {% if server_filter == 'all' %}selected{% endif %}>Все серверы</option>
+        <option value="controller" data-country="{{ local_node.country_code if local_node else '' }}" {% if server_filter == 'controller' %}selected{% endif %}>Controller{% if local_node %} · {{ local_node.name }}{% endif %}</option>
+        {% for node in client_nodes if not node.is_local %}
+        <option value="{{ node.id }}" data-country="{{ node.country_code }}" {% if server_filter == node.id|string %}selected{% endif %}>SG-Node · {{ node.name }} · {{ node.public_ipv4 or node.public_host or 'адрес не получен' }}</option>
+        {% endfor %}
+      </select>
+    </div></label>
+    <label class="clients-filter-field clients-filter-status"><span>Статус</span><select name="status" aria-label="Состояние клиента">
+      <option value="all" {% if status_filter == 'all' %}selected{% endif %}>Все состояния</option>
       <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Активные</option>
-      <option value="online" {% if status_filter == 'online' %}selected{% endif %}>Онлайн</option>
+      <option value="online" {% if status_filter == 'online' %}selected{% endif %}>Онлайн сейчас</option>
+      <option value="applying" {% if status_filter == 'applying' %}selected{% endif %}>Применяются</option>
+      <option value="error" {% if status_filter == 'error' %}selected{% endif %}>С ошибкой</option>
       <option value="expiring" {% if status_filter == 'expiring' %}selected{% endif %}>Истекают скоро</option>
       <option value="expired" {% if status_filter == 'expired' %}selected{% endif %}>Просроченные</option>
       <option value="disabled" {% if status_filter == 'disabled' %}selected{% endif %}>Отключённые</option>
       <option value="unlimited" {% if status_filter == 'unlimited' %}selected{% endif %}>Без срока</option>
-    </select>
-    <select name="sort" aria-label="Сортировка">
+    </select></label>
+    <label class="clients-filter-field clients-filter-sort"><span>Сортировка</span><select name="sort" aria-label="Сортировка">
       <option value="created" {% if sort_mode == 'created' %}selected{% endif %}>Сначала новые</option>
       <option value="name" {% if sort_mode == 'name' %}selected{% endif %}>По имени</option>
-      <option value="handshake" {% if sort_mode == 'handshake' %}selected{% endif %}>По подключению</option>
+      <option value="handshake" {% if sort_mode == 'handshake' %}selected{% endif %}>По последнему подключению</option>
       <option value="traffic" {% if sort_mode == 'traffic' %}selected{% endif %}>По трафику</option>
-      <option value="expiry" {% if sort_mode == 'expiry' %}selected{% endif %}>По сроку</option>
-    </select>
-    <button class="button" type="submit">Найти</button>
+      <option value="expiry" {% if sort_mode == 'expiry' %}selected{% endif %}>По сроку действия</option>
+    </select></label>
+    <div class="clients-filter-actions"><button class="button primary" type="submit">Применить</button><a class="button ghost" href="{{ url_for('clients_page') }}">Сбросить</a></div>
   </form>
+  <div class="clients-filter-result"><span>Показано <b>{{ awg.clients|length }}</b> из <b>{{ client_stats.total }}</b></span>{% if query or server_filter != 'all' or status_filter != 'all' or sort_mode != 'created' %}<em>Фильтр активен</em>{% endif %}</div>
 </section>
 
-<div class="beta9-two-column">
+<div class="clients-workspace">
   <div class="beta9-card-stack">
-    <section class="beta9-panel flush clients-modern-table">
+    <section class="beta9-panel flush clients-table-panel" data-component="clients-modern-table">
       {% if awg.clients %}
       <div class="beta9-table-wrap">
-        <table class="beta9-table clients-modern-table">
-          <thead><tr><th>Клиент</th><th>IP-адрес</th><th>Последнее подключение</th><th>Трафик</th><th class="right">Действия</th></tr></thead>
+        <table class="beta9-table clients-data-table">
+          <colgroup><col class="col-client"><col class="col-server"><col class="col-status"><col class="col-route"><col class="col-traffic"><col class="col-actions"></colgroup>
+          <thead><tr><th>Клиент</th><th>Сервер подключения</th><th>Статус</th><th>Маршрут</th><th>Трафик</th><th class="right">Действия</th></tr></thead>
           <tbody>
           {% for client in awg.clients %}
-            <tr class="{{ 'selected' if selected_client and selected_client.id == client.id else '' }}" onclick="window.location='{{ url_for('clients_page', client=client.id, q=query, status=status_filter, sort=sort_mode) }}'" style="cursor:pointer">
-              <td><div class="beta9-client-name"><i class="client-state-dot {{ 'online' if client.online else 'active' if client.effective_enabled else 'off' }}"></i><div><strong>{{ client.name }}</strong><small>{{ client.comment or 'без комментария' }}</small></div></div></td>
-              <td><code>{{ client.address }}</code></td>
-              <td>{{ client.latest_handshake_text }}</td>
-              <td><span class="traffic-rx">↓ {{ client.rx_text }}</span><br><span class="traffic-tx">↑ {{ client.tx_text }}</span></td>
-              <td class="right" onclick="event.stopPropagation()"><div class="beta9-row-actions">
-                {% if client.effective_enabled %}<a class="beta9-compact-action primary" title="Конфигурация клиента" href="{{ url_for('client_access', client_id=client.id) }}">Конфиг</a>{% endif %}
-                <a class="beta9-compact-action" title="JSON клиента" href="{{ url_for('client_json_page', client_id=client.id) }}">JSON</a>
-                <a class="beta9-compact-action" title="Редактировать клиента" href="{{ url_for('client_edit', client_id=client.id) }}">Изменить</a>
+            {% set deployment = client.deployment_state or 'active' %}
+            <tr class="{{ 'selected' if selected_client and selected_client.id == client.id else '' }}" onclick="window.location='{{ url_for('clients_page', client=client.id, q=query, server=server_filter, status=status_filter, sort=sort_mode) }}'" style="cursor:pointer">
+              <td><div class="beta9-client-name"><i class="client-state-dot {{ 'online' if client.online else 'active' if client.effective_enabled and client.deployment_ready else 'off' }}"></i><div><strong>{{ client.name }}</strong><small><code>{{ client.address }}</code> · {{ 'служебный Cascade' if client.system_role == 'cascade_exit' else (client.comment or 'без комментария') }}</small></div></div></td>
+              <td><span class="server-chip {{ client.server_type }}">{{ country_flag_icon(client.server_country_code, client.server_country_name, "server-country-flag") }} {{ client.server_name }}</span><small class="table-subline">{{ client.server_address or 'адрес не получен' }}{% if client.node_id %}:585{% endif %} · {{ client.latest_handshake_text }}</small></td>
+              <td>
+                {% if deployment == 'queued' %}<span class="status-badge warning">Применяется</span>
+                {% elif deployment == 'deleting' %}<span class="status-badge warning">Удаляется</span>
+                {% elif deployment == 'error' %}<span class="status-badge danger">Ошибка</span>
+                {% elif client.online %}<span class="status-badge success">Онлайн</span>
+                {% elif client.effective_enabled %}<span class="status-badge success">Активен</span>
+                {% else %}<span class="status-badge">Отключён</span>{% endif %}
+              </td>
+              <td>{% if client.egress_mode == 'outbound' %}<span class="client-route-chip cascade">{{ outbound_names.get(client.outbound_id|int, 'Cascade') }}</span>{% else %}<span class="client-route-chip direct">Direct</span>{% endif %}</td>
+              <td class="client-traffic-cell"><span class="traffic-rx">↓ {{ client.rx_text }}</span><span class="traffic-tx">↑ {{ client.tx_text }}</span></td>
+              <td class="right client-actions-cell" onclick="event.stopPropagation()"><div class="beta9-row-actions">
+                {% if client.effective_enabled and client.deployment_ready %}<a class="beta9-compact-action primary" title="Конфигурация клиента" href="{{ url_for('client_access', client_id=client.id) }}">Конфиг</a>{% endif %}
+                <details class="client-more-menu">
+                  <summary class="beta9-compact-action" aria-label="Другие действия">⋯</summary>
+                  <div class="client-more-popover">
+                    <a href="{{ url_for('client_edit', client_id=client.id) }}">Редактировать клиента</a>
+                    {% if not client.node_id %}<a href="{{ url_for('client_json_page', client_id=client.id) }}">Открыть JSON</a>{% endif %}
+                    <form method="post" action="{{ url_for('client_delete', client_id=client.id) }}" data-confirm-title="Удалить клиента {{ client.name|e }}?" data-confirm-message="Клиент, его ключи и персональная ссылка будут удалены без возможности восстановления." data-confirm-action="Удалить клиента" data-confirm-tone="danger">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Удалить клиента</button>
+                    </form>
+                  </div>
+                </details>
               </div></td>
             </tr>
           {% endfor %}
@@ -82,7 +113,7 @@
         </table>
       </div>
       {% else %}
-      <div class="beta9-empty"><h3>Клиентов пока нет</h3><p>Создайте первый профиль AmneziaWG.</p><button class="button primary" type="button" onclick="document.getElementById('add-client-dialog').showModal()">Добавить клиента</button></div>
+      <div class="beta9-empty"><h3>Клиентов пока нет</h3><p>Нажмите «Добавить клиента», укажите имя и выберите сервер подключения.</p><button class="button primary" type="button" onclick="document.getElementById('add-client-dialog').showModal()">Добавить клиента</button></div>
       {% endif %}
       <div class="beta9-table-footer">Показано: {{ awg.clients|length }} · Всего клиентов: {{ client_stats.total }}</div>
     </section>
@@ -93,91 +124,96 @@
         <button class="beta9-dialog-close" type="button" onclick="this.closest('dialog').close()" aria-label="Закрыть">×</button>
       </div>
       <div class="beta9-dialog-body beta9-link-settings">
-        {% if panel.public_scheme != 'https' %}
-        <div class="beta9-security-warning compact"><strong>Сейчас используется HTTP.</strong><span>Конфигурация содержит приватный ключ. Для постоянной передачи включите HTTPS в Security.</span></div>
-        {% endif %}
+        {% if panel.public_scheme != 'https' %}<div class="beta9-security-warning compact"><strong>Сейчас используется HTTP.</strong><span>Конфигурация содержит приватный ключ. Для постоянной передачи включите HTTPS в Security.</span></div>{% endif %}
         <form method="post" action="{{ url_for('access_settings_save') }}" class="ui-form compact-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="beta9-setting-switch">
-            <div><strong>Защищённые ссылки клиентов</strong><small>Когда выключено, все персональные ссылки отвечают кодом 404.</small></div>
-            <label class="beta9-switch" aria-label="Разрешить защищённые ссылки">
-              <input type="checkbox" name="access_enabled" value="1" {{ 'checked' if panel.access_enabled else '' }}>
-              <span></span><b>{{ 'Включены' if panel.access_enabled else 'Выключены' }}</b>
-            </label>
-          </div>
-          <div class="beta9-inline-field">
-            <label>Название скачиваемой конфигурации
-              <input type="text" name="access_profile_title" maxlength="80" value="{{ panel.access_profile_title }}" required>
-              <small>Файл будет скачиваться как <code>{{ panel.access_profile_title or 'SG-AWG' }}-ИМЯ-КЛИЕНТА.conf</code>.</small>
-            </label>
-            <button class="button primary" type="submit">Сохранить изменения</button>
-          </div>
+          <div class="beta9-setting-switch"><div><strong>Защищённые ссылки клиентов</strong><small>Когда выключено, все персональные ссылки отвечают кодом 404.</small></div><label class="beta9-switch" aria-label="Разрешить защищённые ссылки"><input type="checkbox" name="access_enabled" value="1" {{ 'checked' if panel.access_enabled else '' }}><span></span><b>{{ 'Включены' if panel.access_enabled else 'Выключены' }}</b></label></div>
+          <div class="beta9-inline-field"><label>Название скачиваемой конфигурации<input type="text" name="access_profile_title" maxlength="80" value="{{ panel.access_profile_title }}" required><small>Файл будет скачиваться как <code>{{ panel.access_profile_title or 'SG-AWG' }}-ИМЯ-КЛИЕНТА.conf</code>.</small></label><button class="button primary" type="submit">Сохранить изменения</button></div>
         </form>
-        <div class="beta9-inline-actions beta9-dialog-footer-actions">
-          <a class="button" href="{{ url_for('access_json_page') }}">{ } JSON ссылок</a>
-          <a class="button" href="{{ url_for('security_page', tab='access') }}">Открыть HTTPS и домен</a>
-        </div>
+        <div class="beta9-inline-actions beta9-dialog-footer-actions"><a class="button" href="{{ url_for('access_json_page') }}">{ } JSON ссылок</a><a class="button" href="{{ url_for('security_page', tab='access') }}">Открыть HTTPS и домен</a></div>
       </div>
     </dialog>
 
     <dialog id="add-client-dialog" class="beta9-dialog" aria-labelledby="add-client-title">
-      <div class="beta9-dialog-header"><div><p class="eyebrow">CLIENTS</p><h2 id="add-client-title">Добавить клиента</h2><p>Создайте отдельную конфигурацию для одного устройства.</p></div><button class="beta9-dialog-close" type="button" onclick="this.closest('dialog').close()" aria-label="Закрыть">×</button></div>
+      <div class="beta9-dialog-header"><div><p class="eyebrow">CLIENTS</p><h2 id="add-client-title">Добавить клиента</h2><p>Выберите сервер, через который будет подключаться устройство.</p></div><button class="beta9-dialog-close" type="button" onclick="this.closest('dialog').close()" aria-label="Закрыть">×</button></div>
       <div class="beta9-dialog-body">
-      {% if awg.configured %}
+      {% if has_ready_server %}
       <form class="ui-form" method="post" action="{{ url_for('client_add') }}" data-expiry-scope>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="form-grid"><label>Название<input name="name" maxlength="64" required></label><label>Комментарий<input name="comment" maxlength="500"></label></div>
+        <label class="server-select-field"><span>Сервер подключения</span>
+          <div class="flag-select-shell">
+            {{ country_flag_icon('', 'Страна сервера', 'flag-select-preview') }}
+            <select name="node_id" required data-flag-select>
+              {% for node in client_nodes %}
+              <option value="{{ node.id }}" data-country="{{ node.country_code }}" {% if (preselected_node and preselected_node == node.id|string) or (not preselected_node and node.is_local) %}selected{% endif %} {% if not node.client_ready %}disabled{% endif %}>{{ node.country_name }} · {{ 'Controller · ' if node.is_local else 'SG-Node · ' }}{{ node.name }} · {{ node.client_endpoint }}{% if not node.client_ready %} — недоступен{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <small>У каждого сервера свой публичный IP. Controller и SG-Node используют обычный UDP-порт 585.</small>
+        </label>
+        <div class="server-readiness-list">
+          {% for node in client_nodes if not node.client_ready %}<p><b>{{ node.name }}:</b> {{ node.client_ready_reason }}</p>{% endfor %}
+        </div>
+        <div class="form-grid"><label>Название<input name="name" maxlength="64" required autofocus></label><label>Комментарий<input name="comment" maxlength="500"></label></div>
         <fieldset class="expiry-fieldset"><legend>Срок действия</legend><div class="expiry-mode-grid">
           <label class="expiry-choice"><input type="radio" name="expiration_mode" value="unlimited" data-expiry-mode checked><span><strong>Без срока</strong><small>До ручного отключения.</small></span></label>
           <label class="expiry-choice"><input type="radio" name="expiration_mode" value="period" data-expiry-mode><span><strong>На период</strong><small>1, 7, 30, 90 или 365 дней.</small></span></label>
           <label class="expiry-choice"><input type="radio" name="expiration_mode" value="date" data-expiry-mode><span><strong>До даты</strong><small>Точная дата и время.</small></span></label>
-        </div>
-        <div class="expiry-extra" data-expiry-period hidden><label>Период<select name="duration_days"><option value="1">1 день</option><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option><option value="365">1 год</option></select></label></div>
-        <div class="expiry-extra" data-expiry-date hidden><label>Дата и время<input type="datetime-local" name="expires_at_local" data-expiry-local></label><input type="hidden" name="expires_at_utc" data-expiry-utc><input type="hidden" name="timezone_offset" data-timezone-offset></div>
-        </fieldset>
+        </div><div class="expiry-extra" data-expiry-period hidden><label>Период<select name="duration_days"><option value="1">1 день</option><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option><option value="365">1 год</option></select></label></div><div class="expiry-extra" data-expiry-date hidden><label>Дата и время<input type="datetime-local" name="expires_at_local" data-expiry-local></label><input type="hidden" name="expires_at_utc" data-expiry-utc><input type="hidden" name="timezone_offset" data-timezone-offset></div></fieldset>
         <button class="button primary" type="submit">Создать клиента</button>
       </form>
-      {% else %}<div class="alert warning">Сначала настройте AWG Server.</div>{% endif %}
+      {% else %}<div class="alert warning"><b>Нет готового сервера подключения.</b> Настройте AWG Server на Controller или подключите SG-Node и откройте её в Cluster для обновления состояния.</div>{% endif %}
       </div>
     </dialog>
   </div>
 
-  <aside class="beta9-detail-card">
+  <aside class="beta9-detail-card clients-detail-card">
     {% if selected_client %}
-      <div class="beta9-detail-title"><div><span class="client-state-dot {{ 'online' if selected_client.online else 'active' if selected_client.effective_enabled else 'off' }}"></span><h2>{{ selected_client.name }}</h2></div><span class="pill {{ 'enabled' if selected_client.effective_enabled else '' }}">{{ 'АКТИВЕН' if selected_client.effective_enabled else 'ОТКЛЮЧЁН' }}</span></div>
-      <div class="beta9-detail-grid">
-        <div><span>Внутренний IP</span><strong class="beta9-mono">{{ selected_client.address }}</strong></div>
+      {% set deployment = selected_client.deployment_state or 'active' %}
+      <div class="beta9-detail-title"><div><span class="client-state-dot {{ 'online' if selected_client.online else 'active' if selected_client.effective_enabled and selected_client.deployment_ready else 'off' }}"></span><h2>{{ selected_client.name }}</h2></div>
+        {% if deployment == 'queued' %}<span class="pill warning">ПРИМЕНЯЕТСЯ</span>{% elif deployment == 'deleting' %}<span class="pill warning">УДАЛЯЕТСЯ</span>{% elif deployment == 'error' %}<span class="pill danger">ОШИБКА</span>{% else %}<span class="pill {{ 'enabled' if selected_client.effective_enabled else '' }}">{{ 'АКТИВЕН' if selected_client.effective_enabled else 'ОТКЛЮЧЁН' }}</span>{% endif %}
+      </div>
+      <div class="client-server-banner"><span>{{ 'SG-NODE' if selected_client.node_id else 'CONTROLLER' }}</span><strong>{{ country_flag_icon(selected_client.server_country_code, selected_client.server_country_name) }} {{ selected_client.server_name }}</strong><small>{{ selected_client.server_address or 'адрес не получен' }}:{{ 585 if selected_client.node_id else awg.settings.listen_port }}</small></div>
+      {% if deployment == 'queued' %}<div class="beta9-note"><b>Agent применяет изменения</b><span>Конфигурация станет доступна только после проверки реального awg0 и созданного peer.</span></div>{% elif deployment == 'deleting' %}<div class="beta9-note"><b>Agent удаляет клиента</b><span>Строка исчезнет после подтверждения SG-Node.</span></div>{% elif deployment == 'error' %}<div class="alert error"><b>SG-Node не применила клиента.</b> {{ selected_client.deployment_error or 'Откройте SG-Node в Cluster и соберите диагностику.' }}</div>{% endif %}
+      <div class="beta9-detail-grid clients-detail-grid">
+        <div><span>VPN IP</span><strong class="beta9-mono">{{ selected_client.address }}</strong></div>
+        <div><span>Маршрут клиента</span><strong>{% if selected_client.egress_mode == 'outbound' %}<span class="client-route-chip cascade">{{ outbound_names.get(selected_client.outbound_id|int, 'Cascade / Outbound') }}</span>{% else %}<span class="client-route-chip direct">Direct через {{ selected_client.server_name }}</span>{% endif %}</strong></div>
         <div><span>Последнее подключение</span><strong>{{ selected_client.latest_handshake_text }}</strong></div>
-        <div><span>Трафик</span><strong><span class="traffic-rx">↓ {{ selected_client.rx_text }}</span> · <span class="traffic-tx">↑ {{ selected_client.tx_text }}</span></strong></div>
+        <div><span>Трафик</span><strong class="detail-traffic-lines"><span class="traffic-rx">↓ {{ selected_client.rx_text }}</span><span class="traffic-tx">↑ {{ selected_client.tx_text }}</span></strong></div>
         <div><span>Срок</span><strong>{{ selected_client.get('expires_at_text', 'Без срока') }}</strong></div>
+        <div><span>Комментарий</span><strong>{{ selected_client.comment or 'Без комментария' }}</strong></div>
       </div>
       <div class="beta9-detail-actions">
-        {% if selected_client.effective_enabled %}<a class="button primary" href="{{ url_for('client_access', client_id=selected_client.id) }}">Конфигурация клиента</a>{% endif %}
+        {% if selected_client.effective_enabled and selected_client.deployment_ready %}<a class="button primary" href="{{ url_for('client_access', client_id=selected_client.id) }}">Конфигурация клиента</a>{% endif %}
         <a class="button" href="{{ url_for('client_edit', client_id=selected_client.id) }}">Редактировать</a>
-        <a class="button" href="{{ url_for('client_json_page', client_id=selected_client.id) }}">{ } JSON клиента</a>
+        {% if not selected_client.node_id %}<a class="button" href="{{ url_for('client_json_page', client_id=selected_client.id) }}">{ } JSON клиента</a>{% endif %}
+        <form method="post" action="{{ url_for('client_delete', client_id=selected_client.id) }}" data-confirm-title="Удалить клиента {{ selected_client.name|e }}?" data-confirm-message="Клиент, его ключи и персональная ссылка будут удалены без возможности восстановления." data-confirm-action="Удалить клиента" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Удалить клиента</button></form>
       </div>
       <details class="beta9-technical"><summary>Технические параметры</summary><dl>
-        <div><dt>Публичный ключ</dt><dd><code>{{ selected_client.get('public_key', '—') }}</code></dd></div>
+        <div><dt>Сервер</dt><dd>{{ country_flag_icon(selected_client.server_country_code, selected_client.server_country_name) }} {{ selected_client.server_name }}</dd></div>
+        <div><dt>Публичный ключ клиента</dt><dd><code>{{ selected_client.get('public_key', '—') }}</code></dd></div>
         <div><dt>AllowedIPs</dt><dd><code>{{ selected_client.get('allowed_ips', '0.0.0.0/0') }}</code></dd></div>
-        <div><dt>JSON</dt><dd><a class="summary-link" href="{{ url_for('client_json_page', client_id=selected_client.id) }}">Открыть редактор</a></dd></div>
+        {% if not selected_client.node_id %}<div><dt>JSON</dt><dd><a class="summary-link" href="{{ url_for('client_json_page', client_id=selected_client.id) }}">Открыть редактор</a></dd></div>{% endif %}
       </dl></details>
-    {% else %}
-      <div class="beta9-empty"><h3>Выберите клиента</h3><p>Здесь появятся его состояние и действия.</p></div>
-    {% endif %}
+    {% else %}<div class="beta9-empty"><h3>Выберите клиента</h3><p>Здесь появятся его сервер, состояние и действия.</p></div>{% endif %}
   </aside>
 </div>
 <script>
 (() => {
-  for (const dialog of document.querySelectorAll('.beta9-dialog')) {
-    dialog.addEventListener('click', (event) => {
-      if (event.target === dialog) dialog.close();
-    });
-  }
+  for (const dialog of document.querySelectorAll('.beta9-dialog')) dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
   const accessToggle = document.querySelector('#client-links-dialog .beta9-switch input');
-  accessToggle?.addEventListener('change', () => {
-    const label = accessToggle.closest('.beta9-switch')?.querySelector('b');
-    if (label) label.textContent = accessToggle.checked ? 'Включены' : 'Выключены';
-  });
+  accessToggle?.addEventListener('change', () => { const label = accessToggle.closest('.beta9-switch')?.querySelector('b'); if (label) label.textContent = accessToggle.checked ? 'Включены' : 'Выключены'; });
+  const flagUrl = (code) => `{{ url_for('static', filename='flags/unknown.svg') }}`.replace('unknown.svg', code ? `${code.toLowerCase()}.svg` : 'unknown.svg');
+  for (const select of document.querySelectorAll('[data-flag-select]')) {
+    const preview = select.closest('.flag-select-shell')?.querySelector('.flag-select-preview');
+    const refreshFlag = () => {
+      const code = select.options[select.selectedIndex]?.dataset.country || '';
+      if (preview) { preview.src = flagUrl(code); preview.alt = code; preview.title = code || 'Страна не выбрана'; }
+    };
+    select.addEventListener('change', refreshFlag);
+    refreshFlag();
+  }
+  {% if open_add_dialog %}document.getElementById('add-client-dialog')?.showModal();{% endif %}
 })();
 </script>
 {% include "client_expiry_script.html" %}

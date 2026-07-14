@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${SG_AWG_PANEL_VERSION:-v0.1.0-rc4}"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.7.0-RC3}"
 URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
 LOCAL_SOURCE_DIR="${SG_AWG_PANEL_SOURCE_DIR:-}"
 PROJECT_DIR="/opt/sg-awg-panel"
@@ -130,7 +130,9 @@ trap rollback ERR
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ -x "$PROJECT_DIR/.venv/bin/python" ]] || fail "existing installation not found"
 [[ -f "$ENV_FILE" ]] || fail "missing $ENV_FILE"
-[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)[0-9]+)?$ ]] || fail "invalid version"
+if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-([Aa][Ll][Pp][Hh][Aa]|[Bb][Ee][Tt][Aa]|[Rr][Cc])[0-9]+)?$ ]]; then
+  fail "invalid version"
+fi
 for command in rsync python3; do command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"; done
 
 if [[ -n "$LOCAL_SOURCE_DIR" ]]; then
@@ -193,6 +195,7 @@ missing_packages=()
 command -v nft >/dev/null 2>&1 || missing_packages+=(nftables)
 command -v ip >/dev/null 2>&1 || missing_packages+=(iproute2)
 command -v dnsmasq >/dev/null 2>&1 || missing_packages+=(dnsmasq)
+command -v conntrack >/dev/null 2>&1 || missing_packages+=(conntrack)
 if ((${#missing_packages[@]})); then
   log "Installing update dependencies: ${missing_packages[*]}"
   apt-get -o Dpkg::Use-Pty=0 update -qq

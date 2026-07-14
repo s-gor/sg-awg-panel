@@ -3,7 +3,7 @@
   const editor = document.getElementById('json-config');
   document.querySelector('[data-json-format]')?.addEventListener('click', () => {
     try { editor.value = JSON.stringify(JSON.parse(editor.value), null, 2) + '\n'; }
-    catch (error) { alert('JSON содержит ошибку: ' + error.message); }
+    catch (error) { window.sgDialog.notice({title:'JSON содержит ошибку',message:error.message || 'Проверьте синтаксис JSON.',confirmText:'Вернуться к редактору'}); }
   });
 })();
 </script>

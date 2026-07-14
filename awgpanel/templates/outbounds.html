@@ -39,7 +39,7 @@
         <a class="button small" href="{{ url_for('outbound_edit_page', outbound_id=outbound.id) }}">Редактировать</a>
         <a class="button small" href="{{ url_for('outbound_json_page', outbound_id=outbound.id) }}">{ } JSON</a>
         <form method="post" action="{{ url_for('outbound_update', outbound_id=outbound.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button small" type="submit" name="action" value="toggle">{{ 'Отключить' if outbound.enabled else 'Включить' }}</button></form>
-        <form method="post" action="{{ url_for('outbound_update', outbound_id=outbound.id) }}" onsubmit="return confirm('Удалить Outbound {{ outbound.name|e }}? Назначенный трафик вернётся к выходу через текущий сервер.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit" name="action" value="delete">Удалить</button></form>
+        <form method="post" action="{{ url_for('outbound_update', outbound_id=outbound.id) }}" data-confirm-title="Удалить Outbound {{ outbound.name|e }}?" data-confirm-message="Назначенный ему трафик вернётся к обычному выходу через текущий сервер." data-confirm-action="Удалить Outbound" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger small" type="submit" name="action" value="delete">Удалить</button></form>
       </div>
       <details class="beta9-technical"><summary>Технические параметры</summary><dl>
         <div><dt>Интерфейс</dt><dd><code>{{ status.interface_name if status else ('sgo' ~ outbound.id) }}</code></dd></div>

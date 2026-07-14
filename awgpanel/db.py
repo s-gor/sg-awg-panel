@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS awg_clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-    address TEXT NOT NULL UNIQUE,
+    address TEXT NOT NULL,
     private_key TEXT NOT NULL,
     public_key TEXT NOT NULL UNIQUE,
     preshared_key TEXT NOT NULL,
@@ -69,6 +69,12 @@ CREATE TABLE IF NOT EXISTS awg_clients (
     egress_mode TEXT NOT NULL DEFAULT 'awg_gateway',
     outbound_id INTEGER,
     expires_at TEXT,
+    system_role TEXT NOT NULL DEFAULT '',
+    node_id INTEGER REFERENCES cluster_nodes(id) ON DELETE RESTRICT,
+    deployment_state TEXT NOT NULL DEFAULT 'active' CHECK (deployment_state IN ('queued', 'active', 'error', 'deleting')),
+    deployment_job_id INTEGER,
+    deployment_error TEXT NOT NULL DEFAULT '',
+    deployed_enabled INTEGER NOT NULL DEFAULT 1 CHECK (deployed_enabled IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -158,6 +164,7 @@ CREATE TABLE IF NOT EXISTS traffic_controls_settings (
 
 CREATE TABLE IF NOT EXISTS panel_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
+    instance_name TEXT NOT NULL DEFAULT 'SG-AWG-Panel',
     public_scheme TEXT NOT NULL DEFAULT 'http' CHECK (public_scheme IN ('http', 'https')),
     public_host TEXT NOT NULL DEFAULT '',
     public_port INTEGER NOT NULL DEFAULT 62443 CHECK (public_port BETWEEN 1 AND 65535),
@@ -203,6 +210,109 @@ ON web_sessions(revoked_at, last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_auth_events_created
 ON auth_events(created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS cluster_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'node' CHECK (role IN ('controller', 'node')),
+    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'online', 'offline', 'error', 'disabled')),
+    is_local INTEGER NOT NULL DEFAULT 0 CHECK (is_local IN (0, 1)),
+    public_host TEXT NOT NULL DEFAULT '',
+    public_port INTEGER NOT NULL DEFAULT 585 CHECK (public_port BETWEEN 1 AND 65535),
+    enrollment_token_hash TEXT NOT NULL DEFAULT '',
+    enrollment_expires_at TEXT,
+    agent_token_hash TEXT NOT NULL DEFAULT '',
+    registered_at TEXT,
+    last_seen_at TEXT,
+    agent_version TEXT NOT NULL DEFAULT '',
+    os_name TEXT NOT NULL DEFAULT '',
+    os_version TEXT NOT NULL DEFAULT '',
+    kernel TEXT NOT NULL DEFAULT '',
+    public_ipv4 TEXT NOT NULL DEFAULT '',
+    private_ipv4 TEXT NOT NULL DEFAULT '',
+    country_code TEXT NOT NULL DEFAULT '',
+    country_mode TEXT NOT NULL DEFAULT 'auto' CHECK (country_mode IN ('auto', 'manual')),
+    country_updated_at TEXT,
+    awg_version TEXT NOT NULL DEFAULT '',
+    panel_version TEXT NOT NULL DEFAULT '',
+    cpu_percent REAL NOT NULL DEFAULT 0,
+    memory_percent REAL NOT NULL DEFAULT 0,
+    disk_percent REAL NOT NULL DEFAULT 0,
+    load1 REAL NOT NULL DEFAULT 0,
+    service_awg TEXT NOT NULL DEFAULT 'unknown',
+    service_traffic TEXT NOT NULL DEFAULT 'unknown',
+    service_nginx TEXT NOT NULL DEFAULT 'unknown',
+    capabilities_json TEXT NOT NULL DEFAULT '{}',
+    awg_runtime_json TEXT NOT NULL DEFAULT '{}',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_local
+ON cluster_nodes(is_local) WHERE is_local=1;
+CREATE INDEX IF NOT EXISTS idx_cluster_nodes_state
+ON cluster_nodes(state, last_seen_at);
+
+CREATE TABLE IF NOT EXISTS node_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL REFERENCES cluster_nodes(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('refresh', 'diagnostics', 'restart_awg', 'restart_traffic', 'restart_nginx', 'apply_awg_config')),
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'claimed', 'success', 'error', 'cancelled')),
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_node_jobs_queue
+ON node_jobs(node_id, state, id);
+
+
+CREATE TABLE IF NOT EXISTS cascade_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_node_id INTEGER NOT NULL REFERENCES cluster_nodes(id) ON DELETE RESTRICT,
+    exit_node_id INTEGER NOT NULL REFERENCES cluster_nodes(id) ON DELETE RESTRICT,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    state TEXT NOT NULL DEFAULT 'preparing_exit' CHECK (state IN (
+        'preparing_exit', 'preparing_entry', 'active', 'disabling_entry',
+        'disabling_exit', 'disabled', 'error'
+    )),
+    service_client_id INTEGER REFERENCES awg_clients(id) ON DELETE SET NULL,
+    outbound_id INTEGER REFERENCES outbounds(id) ON DELETE SET NULL,
+    entry_job_id INTEGER REFERENCES node_jobs(id) ON DELETE SET NULL,
+    exit_job_id INTEGER REFERENCES node_jobs(id) ON DELETE SET NULL,
+    last_test_at TEXT,
+    last_exit_ip TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (entry_node_id <> exit_node_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cascade_links_entry_active
+ON cascade_links(entry_node_id) WHERE enabled=1 AND state<>'disabled';
+CREATE INDEX IF NOT EXISTS idx_cascade_links_exit
+ON cascade_links(exit_node_id, enabled, state);
+
+CREATE TABLE IF NOT EXISTS cascade_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    outbound_id INTEGER REFERENCES outbounds(id) ON DELETE SET NULL,
+    exit_name TEXT NOT NULL DEFAULT '',
+    exit_host TEXT NOT NULL DEFAULT '',
+    exit_country_code TEXT NOT NULL DEFAULT '',
+    last_state TEXT NOT NULL DEFAULT 'not_configured',
+    last_test_at TEXT,
+    last_exit_ip TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    last_client_test_at TEXT,
+    last_client_error TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -274,7 +384,116 @@ def _migrate_traffic_rules_gateway_mode(con: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_awg_clients_v202(con: sqlite3.Connection) -> None:
+    """Add cluster ownership and remove the obsolete global address uniqueness.
+
+    Different SG-Node servers can legitimately use the same private client
+    address because each server has its own awg0 interface and public IP.
+    """
+    row = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='awg_clients'"
+    ).fetchone()
+    table_sql = str(row[0] or "") if row else ""
+    columns = _columns(con, "awg_clients")
+    needs_rebuild = "address TEXT NOT NULL UNIQUE" in table_sql
+    required = {"node_id", "deployment_state", "deployment_job_id", "deployment_error", "deployed_enabled"}
+    if not needs_rebuild and required <= columns:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_awg_clients_node "
+            "ON awg_clients(node_id, deployment_state, id)"
+        )
+        return
+
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("ALTER TABLE awg_clients RENAME TO awg_clients_legacy_v202")
+    con.execute(
+        """
+        CREATE TABLE awg_clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            address TEXT NOT NULL,
+            private_key TEXT NOT NULL,
+            public_key TEXT NOT NULL UNIQUE,
+            preshared_key TEXT NOT NULL,
+            comment TEXT NOT NULL DEFAULT '',
+            allowed_ips TEXT NOT NULL DEFAULT '0.0.0.0/0',
+            dns_servers TEXT NOT NULL DEFAULT '',
+            mtu INTEGER,
+            access_token TEXT NOT NULL DEFAULT '',
+            access_enabled INTEGER NOT NULL DEFAULT 1 CHECK (access_enabled IN (0, 1)),
+            access_downloads INTEGER NOT NULL DEFAULT 0,
+            access_last_at TEXT,
+            excluded_ips TEXT NOT NULL DEFAULT '',
+            advertised_networks TEXT NOT NULL DEFAULT '',
+            include_server_lan INTEGER NOT NULL DEFAULT 0 CHECK (include_server_lan IN (0, 1)),
+            egress_mode TEXT NOT NULL DEFAULT 'awg_gateway',
+            outbound_id INTEGER,
+            expires_at TEXT,
+            system_role TEXT NOT NULL DEFAULT '',
+            node_id INTEGER REFERENCES cluster_nodes(id) ON DELETE RESTRICT,
+            deployment_state TEXT NOT NULL DEFAULT 'active'
+                CHECK (deployment_state IN ('queued', 'active', 'error', 'deleting')),
+            deployment_job_id INTEGER,
+            deployment_error TEXT NOT NULL DEFAULT '',
+            deployed_enabled INTEGER NOT NULL DEFAULT 1 CHECK (deployed_enabled IN (0, 1)),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    legacy_columns = _columns(con, "awg_clients_legacy_v202")
+    target_columns = [
+        "id", "name", "enabled", "address", "private_key", "public_key",
+        "preshared_key", "comment", "allowed_ips", "dns_servers", "mtu",
+        "access_token", "access_enabled", "access_downloads", "access_last_at",
+        "excluded_ips", "advertised_networks", "include_server_lan", "egress_mode",
+        "outbound_id", "expires_at", "system_role", "node_id", "deployment_state",
+        "deployment_job_id", "deployment_error", "deployed_enabled", "created_at", "updated_at",
+    ]
+    select_parts = []
+    defaults = {
+        "enabled": "1",
+        "comment": "''",
+        "allowed_ips": "'0.0.0.0/0'",
+        "dns_servers": "''",
+        "mtu": "NULL",
+        "access_token": "''",
+        "access_enabled": "1",
+        "access_downloads": "0",
+        "access_last_at": "NULL",
+        "excluded_ips": "''",
+        "advertised_networks": "''",
+        "include_server_lan": "0",
+        "egress_mode": "'awg_gateway'",
+        "outbound_id": "NULL",
+        "expires_at": "NULL",
+        "system_role": "''",
+        "node_id": "NULL",
+        "deployment_state": "'active'",
+        "deployment_job_id": "NULL",
+        "deployment_error": "''",
+        "deployed_enabled": "1",
+        "created_at": "CURRENT_TIMESTAMP",
+        "updated_at": "CURRENT_TIMESTAMP",
+    }
+    for name in target_columns:
+        select_parts.append(name if name in legacy_columns else defaults.get(name, "NULL"))
+    con.execute(
+        f"INSERT INTO awg_clients ({', '.join(target_columns)}) "
+        f"SELECT {', '.join(select_parts)} FROM awg_clients_legacy_v202"
+    )
+    con.execute("DROP TABLE awg_clients_legacy_v202")
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_awg_clients_node "
+        "ON awg_clients(node_id, deployment_state, id)"
+    )
+    con.execute("PRAGMA foreign_keys=ON")
+
+
 def _migrate(con: sqlite3.Connection) -> None:
+    _migrate_awg_clients_v202(con)
+
     settings_columns = _columns(con, "awg_settings")
     if "isolate_clients" not in settings_columns:
         con.execute(
@@ -317,6 +536,10 @@ def _migrate(con: sqlite3.Connection) -> None:
         con.execute("DROP TABLE server_protection_settings")
 
     panel_columns = _columns(con, "panel_settings")
+    if "instance_name" not in panel_columns:
+        con.execute(
+            "ALTER TABLE panel_settings ADD COLUMN instance_name TEXT NOT NULL DEFAULT 'SG-AWG-Panel'"
+        )
     if "manage_placeholder" not in panel_columns:
         con.execute(
             "ALTER TABLE panel_settings ADD COLUMN manage_placeholder INTEGER NOT NULL DEFAULT 1"
@@ -329,6 +552,39 @@ def _migrate(con: sqlite3.Connection) -> None:
         con.execute(
             "ALTER TABLE panel_settings ADD COLUMN access_profile_title TEXT NOT NULL DEFAULT 'SG-AWG'"
         )
+
+    cascade_columns = _columns(con, "cascade_settings")
+    if "exit_country_code" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN exit_country_code TEXT NOT NULL DEFAULT ''"
+        )
+    if "last_client_test_at" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN last_client_test_at TEXT"
+        )
+    if "last_client_error" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN last_client_error TEXT NOT NULL DEFAULT ''"
+        )
+
+    node_columns = _columns(con, "cluster_nodes")
+    if "awg_runtime_json" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN awg_runtime_json TEXT NOT NULL DEFAULT '{}'")
+    if "country_code" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_code TEXT NOT NULL DEFAULT ''")
+    if "country_mode" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_mode TEXT NOT NULL DEFAULT 'auto'")
+    if "country_updated_at" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_updated_at TEXT")
+    con.execute("UPDATE cluster_nodes SET public_port=585 WHERE is_local=0 AND public_port<>585")
+    if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='node_profiles'").fetchone():
+        con.execute("DROP TABLE node_profiles")
+    con.execute(
+        "UPDATE node_jobs SET state='cancelled', result_json=? "
+        "WHERE kind='apply_awg_config' AND state IN ('queued','claimed') "
+        "AND COALESCE(json_extract(payload_json, '$.mode'), '') <> 'sync_clients'",
+        ('{"message":"Устаревшее задание отменено при переходе на единый раздел Clients"}',),
+    )
 
     client_columns = _columns(con, "awg_clients")
     migrations = {
@@ -345,6 +601,12 @@ def _migrate(con: sqlite3.Connection) -> None:
         "egress_mode": "TEXT NOT NULL DEFAULT 'awg_gateway'",
         "outbound_id": "INTEGER",
         "expires_at": "TEXT",
+        "system_role": "TEXT NOT NULL DEFAULT ''",
+        "node_id": "INTEGER",
+        "deployment_state": "TEXT NOT NULL DEFAULT 'active'",
+        "deployment_job_id": "INTEGER",
+        "deployment_error": "TEXT NOT NULL DEFAULT ''",
+        "deployed_enabled": "INTEGER NOT NULL DEFAULT 1",
     }
     for name, definition in migrations.items():
         if name not in client_columns:
@@ -437,12 +699,19 @@ def init_db() -> None:
         )
         con.execute(
             """
+            INSERT OR IGNORE INTO cascade_settings (
+                id, enabled, outbound_id, exit_name, exit_host, last_state
+            ) VALUES (1, 0, NULL, '', '', 'not_configured')
+            """
+        )
+        con.execute(
+            """
             INSERT OR IGNORE INTO panel_settings (
-                id, public_scheme, public_host, public_port,
+                id, instance_name, public_scheme, public_host, public_port,
                 backend_address, backend_port, https_enabled, manage_placeholder,
                 backup_schedule, backup_keep, update_channel, auth_epoch,
                 access_enabled, access_profile_title
-            ) VALUES (1, 'http', '', 62443, '127.0.0.1', 18080,
+            ) VALUES (1, 'SG-AWG-Panel', 'http', '', 62443, '127.0.0.1', 18080,
                       0, 1, 'daily', 20, 'prerelease', 1, 1, 'SG-AWG')
             """
         )

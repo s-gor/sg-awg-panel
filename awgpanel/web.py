@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote, urlsplit
 
 from flask import (
     Flask,
@@ -30,6 +31,8 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
+from markupsafe import Markup, escape
 
 from . import __version__
 from .core import (
@@ -41,6 +44,7 @@ from .core import (
     configure_backup_policy,
     configure_access_document,
     configure_access_links,
+    configure_instance_name,
     create_web_session,
     create_manual_backup,
     delete_awg_client,
@@ -92,6 +96,56 @@ from .core import (
     ip_is_allowed,
 )
 from .db import init_db
+from .geography import (
+    country_display, country_flag, country_flag_asset, country_name,
+    detect_country_code, normalize_country_code,
+)
+from .cascade import (
+    assign_cascade_clients,
+    cascade_document,
+    configure_cascade,
+    configure_cascade_from_link,
+    create_exit_enrollment,
+    create_exit_service_client,
+    disable_cascade,
+    get_cascade_settings,
+    get_exit_service_client,
+    remove_exit_service_client,
+    test_cascade,
+    test_cascade_client,
+)
+from .cluster_cascade import (
+    cascade_servers,
+    create_cascade_link as create_cluster_cascade_link,
+    disable_cascade_link as disable_cluster_cascade_link,
+    get_cascade_link as get_cluster_cascade_link,
+    list_cascade_links,
+    reconcile_all_cascades,
+    test_cascade_link as test_cluster_cascade_link,
+)
+from .node_manager import (
+    authenticate_agent,
+    claim_next_job,
+    cleanup_duplicate_pending_nodes,
+    collapse_duplicate_nodes,
+    create_node,
+    delete_node,
+    enroll_node,
+    enrollment_command,
+    ensure_local_node,
+    finish_job,
+    find_remote_node_by_name,
+    get_node,
+    heartbeat,
+    list_jobs,
+    list_nodes,
+    node_install_command,
+    queue_job,
+    renew_enrollment,
+    set_node_country,
+    set_node_enabled,
+    set_node_name,
+)
 from .egress import (
     apply_egress_runtime,
     create_outbound,
@@ -169,6 +223,38 @@ def _bool_env(name: str, default: bool = False) -> bool:
 def _safe_filename(name: str) -> str:
     value = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in name)
     return value.strip("-.") or "client"
+
+
+def _qr_svg_response(value: str) -> Response:
+    try:
+        import qrcode
+        from qrcode.image.svg import SvgPathImage
+    except ImportError as exc:  # pragma: no cover - installer provides dependency
+        raise RuntimeError("Модуль QR-кодов не установлен") from exc
+    image = qrcode.make(value, image_factory=SvgPathImage, error_correction=qrcode.constants.ERROR_CORRECT_L)
+    stream = io.BytesIO()
+    image.save(stream)
+    response = Response(stream.getvalue(), mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+    return response
+
+
+def _profile_response_headers(response: Response, *, profile_name: str, filename: str) -> Response:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["X-SG-Profile-Name"] = quote(profile_name, safe="/._-")
+    response.headers["X-SG-Profile-Name-Encoding"] = "percent-utf8"
+    response.headers["X-SG-Profile-Type"] = "amneziawg"
+    response.headers["X-SG-Profile-Filename"] = quote(filename, safe="._-")
+    return response
+
+
+def _inline_content_disposition(filename: str) -> str:
+    ascii_name = secure_filename(filename) or "sg-awg-profile.conf"
+    encoded = quote(filename, safe="")
+    return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
 
 def _write_env_value(key: str, value: str) -> None:
@@ -489,12 +575,71 @@ def create_app() -> Flask:
         return "0 B"
 
     app.jinja_env.filters["filesize"] = format_size
+    app.jinja_env.filters["country_flag"] = country_flag
+    app.jinja_env.filters["country_name"] = country_name
+    app.jinja_env.filters["country_display"] = country_display
+    app.jinja_env.filters["country_flag_asset"] = country_flag_asset
+
+    def country_flag_icon(value: object, title: object = "", css_class: object = "") -> Markup:
+        code = normalize_country_code(value)
+        label = str(title or country_name(code))
+        classes = "country-flag-image"
+        extra = re.sub(r"[^A-Za-z0-9_-]+", " ", str(css_class or "")).strip()
+        if extra:
+            classes += " " + extra
+        src = url_for("static", filename=country_flag_asset(code), v=app.jinja_env.globals.get("asset_version", ""))
+        alt = code if code else ""
+        return Markup(
+            f'<img class="{escape(classes)}" src="{escape(src)}" alt="{escape(alt)}" '
+            f'title="{escape(label)}" width="24" height="24" loading="lazy">'
+        )
+
+    app.jinja_env.globals["country_flag_icon"] = country_flag_icon
+
+    def ensure_controller_identity(panel=None, *, force_country: bool = False):
+        panel = panel or get_panel_settings()
+        public_ip = "" if app.config.get("TESTING") else detect_public_ipv4(force=force_country)
+        current = next((item for item in list_nodes() if item.get("is_local")), None)
+        code = ""
+        if current and current.get("country_mode") == "manual":
+            code = str(current.get("country_code") or "")
+        elif public_ip:
+            code = detect_country_code(public_ip, force=force_country)
+        return ensure_local_node(
+            name=str(panel["instance_name"] or "SG-AWG Controller"),
+            public_host=str(panel["public_host"] or public_ip or ""),
+            country_code=code,
+        )
 
     @app.context_processor
     def inject_layout_context():
         if not session.get("authenticated"):
             return {}
-        return {"global_system_status": global_system_status()}
+        panel = get_panel_settings()
+        public_url = current_public_url(panel)
+        address = urlsplit(public_url).hostname or "SERVER_IP"
+        instance_name = str(panel["instance_name"] or "SG-AWG-Panel").strip()
+        local_node = None
+        try:
+            local_node = ensure_controller_identity(panel)
+            nodes = list_nodes()
+            cluster_summary = {
+                "total": max(0, len(nodes) - 1),
+                "online": sum(1 for item in nodes if not item.get("is_local") and item.get("online")),
+            }
+        except Exception:
+            cluster_summary = {"total": 0, "online": 0}
+        identity_label = address if instance_name.casefold() == address.casefold() else f"{instance_name} · {address}"
+        return {
+            "global_system_status": global_system_status(),
+            "cluster_summary": cluster_summary,
+            "layout_instance_name": instance_name,
+            "layout_server_address": address,
+            "layout_identity_label": identity_label,
+            "layout_country_code": str((local_node or {}).get("country_code") or ""),
+            "layout_country_flag": country_flag((local_node or {}).get("country_code")),
+            "layout_ui_build": "sgawg070rc3",
+        }
 
     def access_rows() -> list[dict[str, object]]:
         panel = get_panel_settings()
@@ -504,19 +649,24 @@ def create_app() -> Flask:
             item = dict(row)
             item.update(client_lifecycle(item))
             item["access_url"] = f"{base}{url_for('public_client_config', token=row['access_token'])}"
+            item["subscription_url"] = f"{base}{url_for('public_client_subscription', token=row['access_token'])}"
+            item["managed_profile_url"] = f"{base}{url_for('public_client_managed_profile', token=row['access_token'])}"
             rows.append(item)
         return rows
 
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["panel_version"] = __version__
-    app.jinja_env.globals["asset_version"] = f"{__version__}-ui7"
+    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc3"
 
     @app.before_request
     def enforce_panel_allowlist():
         if request.endpoint in {
             "static", "health", "public_client_config", "public_client_download",
+            "public_client_qr", "public_client_subscription", "public_client_managed_profile",
             "panel_access_job_status", "panel_access_job_events", "panel_access_job_probe",
-            "panel_access_job_complete",
+            "panel_access_job_complete", "node_agent_enroll", "node_agent_heartbeat",
+            "node_agent_next_job", "node_agent_finish_job",
+            "bootstrap_node_bundle", "bootstrap_node_install_script", "bootstrap_node_connect_script",
         }:
             return None
         ip_value = client_ip()
@@ -647,7 +797,7 @@ def create_app() -> Flask:
         try:
             if (
                 summary.client_addresses_change
-                and list_awg_clients()
+                and list_awg_clients(local_only=True)
                 and request.form.get("confirm_network_change") != "1"
             ):
                 raise ValueError(
@@ -685,7 +835,7 @@ def create_app() -> Flask:
             summary = server_change_summary(current, values)
             if (
                 summary.client_addresses_change
-                and list_awg_clients()
+                and list_awg_clients(local_only=True)
                 and not confirm_network_change
             ):
                 raise ValueError(
@@ -761,13 +911,52 @@ def create_app() -> Flask:
     @app.get("/clients")
     @login_required
     def clients_page():
+        panel = get_panel_settings()
+        ensure_controller_identity(panel)
         awg = get_awg_overview()
+        client_nodes = list_nodes()
+        local_node = next((item for item in client_nodes if item.get("is_local")), None)
+        for node in client_nodes:
+            runtime = node.get("awg_runtime") if isinstance(node.get("awg_runtime"), dict) else {}
+            if node.get("is_local"):
+                node["client_ready"] = bool(awg.get("configured"))
+                node["client_ready_reason"] = "" if node["client_ready"] else "Сначала настройте AWG Server на Controller"
+                node["client_endpoint"] = f"{awg['settings']['endpoint_host'] or awg.get('public_ipv4_detected') or 'Controller'}:{awg['settings']['listen_port']}"
+            else:
+                try:
+                    runtime_port = int(runtime.get("listen_port") or node.get("public_port") or 0)
+                except (TypeError, ValueError):
+                    runtime_port = 0
+                node["client_ready"] = bool(
+                    node.get("effective_state") == "online"
+                    and node.get("service_awg") == "active"
+                    and runtime_port == 585
+                    and runtime.get("public_key")
+                    and runtime.get("server_network")
+                    and runtime.get("interface_address")
+                )
+                if node["client_ready"]:
+                    node["client_ready_reason"] = ""
+                elif node.get("effective_state") != "online":
+                    node["client_ready_reason"] = "SG-Node ещё не в сети"
+                elif runtime_port != 585:
+                    node["client_ready_reason"] = "Ожидается работающий UDP-порт 585"
+                else:
+                    node["client_ready_reason"] = "Откройте SG-Node в Cluster и нажмите «Обновить состояние»"
+                node["client_endpoint"] = f"{node.get('public_ipv4') or node.get('public_host') or 'адрес ещё не получен'}:585"
         all_clients = list(awg["clients"])
         query = request.args.get("q", "").strip().lower()
         status_filter = request.args.get("status", "all").strip().lower()
         sort_mode = request.args.get("sort", "created").strip().lower()
+        server_filter = request.args.get("server", "all").strip().lower()
+        preselected_node = request.args.get("node", "").strip()
+        open_add_dialog = request.args.get("open", "").strip().lower() == "add" or bool(preselected_node)
 
         rows = all_clients
+        if server_filter == "controller":
+            rows = [row for row in rows if not row.get("node_id")]
+        elif server_filter.isdigit():
+            rows = [row for row in rows if int(row.get("node_id") or 0) == int(server_filter)]
         if query:
             rows = [
                 row for row in rows
@@ -776,7 +965,7 @@ def create_app() -> Flask:
                 or query in str(row.get("comment", "")).lower()
             ]
         if status_filter == "active":
-            rows = [row for row in rows if bool(row.get("effective_enabled"))]
+            rows = [row for row in rows if bool(row.get("effective_enabled")) and bool(row.get("deployment_ready"))]
         elif status_filter == "online":
             rows = [row for row in rows if bool(row.get("online"))]
         elif status_filter == "expiring":
@@ -787,6 +976,10 @@ def create_app() -> Flask:
             rows = [row for row in rows if not bool(row.get("enabled"))]
         elif status_filter == "unlimited":
             rows = [row for row in rows if not row.get("expires_at")]
+        elif status_filter == "applying":
+            rows = [row for row in rows if str(row.get("deployment_state") or "active") in {"queued", "deleting"}]
+        elif status_filter == "error":
+            rows = [row for row in rows if str(row.get("deployment_state") or "active") == "error"]
 
         if sort_mode == "name":
             rows.sort(key=lambda row: str(row.get("name", "")).casefold())
@@ -802,14 +995,23 @@ def create_app() -> Flask:
         visible_awg = dict(awg)
         visible_awg["clients"] = rows
         outbound_names = {int(row["id"]): str(row["name"]) for row in list_outbounds()}
+        cascade_settings = get_cascade_settings()
+        cascade_outbound_id = int(cascade_settings.get("outbound_id") or 0)
+        if cascade_outbound_id and cascade_settings.get("exit_name"):
+            outbound_names[cascade_outbound_id] = f"Cascade → {cascade_settings['exit_name']}"
+        for link in list_cascade_links(include_disabled=False):
+            if link.get("entry", {}).get("is_local") and int(link.get("outbound_id") or 0):
+                outbound_names[int(link["outbound_id"])] = f"Cascade → {link.get('exit', {}).get('name') or 'сервер выхода'}"
         client_stats = {
             "total": len(all_clients),
-            "active": sum(1 for row in all_clients if bool(row.get("effective_enabled"))),
+            "active": sum(1 for row in all_clients if bool(row.get("effective_enabled")) and bool(row.get("deployment_ready"))),
             "online": sum(1 for row in all_clients if bool(row.get("online"))),
             "expiring": sum(1 for row in all_clients if bool(row.get("expiring_soon")) and not bool(row.get("expired"))),
             "expired": sum(1 for row in all_clients if bool(row.get("expired"))),
             "disabled": sum(1 for row in all_clients if not bool(row.get("enabled"))),
             "unlimited": sum(1 for row in all_clients if not row.get("expires_at")),
+            "applying": sum(1 for row in all_clients if str(row.get("deployment_state") or "active") in {"queued", "deleting"}),
+            "error": sum(1 for row in all_clients if str(row.get("deployment_state") or "active") == "error"),
         }
         selected_client = None
         selected_value = request.args.get("client", "").strip()
@@ -818,11 +1020,10 @@ def create_app() -> Flask:
         if selected_client is None and rows:
             selected_client = rows[0]
         selected_client_json = ""
-        if selected_client is not None:
+        if selected_client is not None and not selected_client.get("node_id"):
             selected_client_json = client_json_document(selected_client, get_awg_settings())
         active_outbounds = [item for item in list_outbounds() if bool(item["enabled"])]
         traffic_rule_count = len(list_traffic_rules(include_system=False))
-        panel = get_panel_settings()
         return render_template(
             "clients.html",
             awg=visible_awg,
@@ -831,6 +1032,12 @@ def create_app() -> Flask:
             query=query,
             status_filter=status_filter,
             sort_mode=sort_mode,
+            server_filter=server_filter,
+            client_nodes=client_nodes,
+            local_node=local_node,
+            has_ready_server=any(bool(item.get("client_ready")) for item in client_nodes),
+            preselected_node=preselected_node,
+            open_add_dialog=open_add_dialog,
             selected_client=selected_client,
             selected_client_json=selected_client_json,
             active_outbounds=active_outbounds,
@@ -843,19 +1050,30 @@ def create_app() -> Flask:
     def client_add():
         require_csrf()
         try:
+            node_value = request.form.get("node_id", "").strip()
+            node_id = int(node_value) if node_value.isdigit() else None
             client = add_awg_client(
                 request.form.get("name", ""),
                 request.form.get("comment", ""),
                 _expiry_from_form(request.form),
+                node_id=node_id,
             )
-            flash(f"Клиент {client['name']} создан и применён.", "success")
+            if client["node_id"]:
+                flash(
+                    f"Клиент {client['name']} создан. Agent применяет его на выбранной SG-Node.",
+                    "success",
+                )
+                return redirect(url_for("clients_page", client=int(client["id"]), server=int(client["node_id"])))
+            flash(f"Клиент {client['name']} создан и применён на Controller.", "success")
+            return redirect(url_for("clients_page", client=int(client["id"]), server="controller"))
         except (ValueError, PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
-        return redirect(url_for("clients_page"))
+            return redirect(url_for("clients_page", open="add", node=request.form.get("node_id", "")))
 
     @app.route("/clients/<int:client_id>/edit", methods=["GET", "POST"])
     @login_required
     def client_edit(client_id: int):
+        ensure_controller_identity(get_panel_settings())
         client = find_awg_client(client_id)
         if request.method == "POST":
             require_csrf()
@@ -890,6 +1108,9 @@ def create_app() -> Flask:
     def client_json_page(client_id: int):
         scope = f"client:{client_id}"
         client = find_awg_client(client_id)
+        if dict(client).get("node_id"):
+            flash("Для клиента SG-Node используйте обычную форму. Технический JSON относится к локальному Controller.", "warning")
+            return redirect(url_for("client_edit", client_id=client_id))
         source = client_json_document(client, get_awg_settings())
         validation_passed = False
         validation_token = ""
@@ -998,7 +1219,10 @@ def create_app() -> Flask:
         require_csrf()
         try:
             client = delete_awg_client(client_id)
-            flash(f"Клиент {client['name']} удалён.", "success")
+            if client["node_id"]:
+                flash(f"Удаление клиента {client['name']} передано SG-Node.", "success")
+            else:
+                flash(f"Клиент {client['name']} удалён.", "success")
         except (PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("clients_page"))
@@ -1018,6 +1242,12 @@ def create_app() -> Flask:
         base = current_public_url(panel)
         enriched["access_url"] = (
             f"{base}{url_for('public_client_config', token=client['access_token'])}"
+        )
+        enriched["subscription_url"] = (
+            f"{base}{url_for('public_client_subscription', token=client['access_token'])}"
+        )
+        enriched["managed_profile_url"] = (
+            f"{base}{url_for('public_client_managed_profile', token=client['access_token'])}"
         )
         return render_template(
             "client_config.html",
@@ -1042,6 +1272,14 @@ def create_app() -> Flask:
             as_attachment=True,
             download_name=f"{_safe_filename(client['name'])}-awg.conf",
         )
+
+    @app.get("/clients/<int:client_id>/qr.svg")
+    @login_required
+    def client_qr(client_id: int):
+        try:
+            return _qr_svg_response(render_awg_client_config(client_id))
+        except AWGPanelError:
+            abort(404)
 
     @app.get("/access")
     @login_required
@@ -1184,6 +1422,71 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         return response
+
+    @app.get("/a/<token>/qr.svg")
+    def public_client_qr(token: str):
+        panel = get_panel_settings()
+        if not bool(panel["access_enabled"]):
+            abort(404)
+        try:
+            client = find_client_by_access_token(token)
+            config_text = render_awg_client_config(int(client["id"]))
+            record_client_access(int(client["id"]))
+        except AWGPanelError:
+            abort(404)
+        return _qr_svg_response(config_text)
+
+    @app.get("/s/<token>")
+    def public_client_subscription(token: str):
+        panel = get_panel_settings()
+        if not bool(panel["access_enabled"]):
+            abort(404)
+        try:
+            client = find_client_by_access_token(token)
+            config_text = render_awg_client_config(int(client["id"]))
+            record_client_access(int(client["id"]))
+        except AWGPanelError:
+            abort(404)
+        profile_title = str(panel["access_profile_title"] or "SG-AWG").strip()
+        instance_name = str(panel["instance_name"] or "SG-AWG-Panel").strip()
+        profile_name = str(client["name"]) if instance_name.casefold() == "sg-awg-panel" else f"{instance_name}/{client['name']}"
+        filename = f"{_safe_filename(f'{profile_title}-{client["name"]}')}.conf"
+        response = Response(config_text, mimetype="text/plain; charset=utf-8")
+        response.headers["Content-Disposition"] = _inline_content_disposition(filename)
+        return _profile_response_headers(response, profile_name=profile_name, filename=filename)
+
+    @app.get("/s/<token>/managed.json")
+    def public_client_managed_profile(token: str):
+        panel = get_panel_settings()
+        if not bool(panel["access_enabled"]):
+            abort(404)
+        try:
+            client = find_client_by_access_token(token)
+            config_text = render_awg_client_config(int(client["id"]))
+            record_client_access(int(client["id"]))
+        except AWGPanelError:
+            abort(404)
+        instance_name = str(panel["instance_name"] or "SG-AWG-Panel").strip()
+        profile_name = str(client["name"]) if instance_name.casefold() == "sg-awg-panel" else f"{instance_name}/{client['name']}"
+        payload = {
+            "schema": "sg-client-managed-profile-v1",
+            "version": 1,
+            "source": "SG-AWG-Panel",
+            "instance_name": instance_name,
+            "profile": {
+                "id": f"awg-{int(client['id'])}",
+                "name": profile_name,
+                "protocol": "amneziawg",
+                "config": config_text,
+                "updated_at": str(client["updated_at"] or ""),
+            },
+        }
+        response = Response(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            mimetype="application/json; charset=utf-8",
+        )
+        filename = f"{_safe_filename(profile_name)}.json"
+        return _profile_response_headers(response, profile_name=profile_name, filename=filename)
 
     @app.get("/outbounds")
     @login_required
@@ -1358,7 +1661,7 @@ def create_app() -> Flask:
         return card
 
     def _traffic_rules_page_context() -> dict[str, object]:
-        clients = list_awg_clients()
+        clients = list_awg_clients(local_only=True)
         outbounds = list_outbounds()
         client_names = {int(client["id"]): str(client["name"]) for client in clients}
         rules = [
@@ -1577,7 +1880,7 @@ def create_app() -> Flask:
             rule_json=source,
             form_state=_simple_rule_form_state(rule),
             simple_editor_available=True,
-            clients=list_awg_clients(),
+            clients=list_awg_clients(local_only=True),
             outbounds=list_outbounds(enabled_only=True),
             validation_passed=validation_passed,
             validation_error=validation_error,
@@ -1653,7 +1956,7 @@ def create_app() -> Flask:
             rule_json=source,
             form_state=_simple_rule_form_state(rule),
             simple_editor_available=simple_available,
-            clients=list_awg_clients(),
+            clients=list_awg_clients(local_only=True),
             outbounds=list_outbounds(enabled_only=True),
             validation_passed=validation_passed,
             validation_error=validation_error,
@@ -2040,7 +2343,25 @@ def create_app() -> Flask:
         return render_template(
             "system.html", diagnostics=data, checks=checks, problems=problems,
             services=services, active_tab=tab, resources=data.get("resources", {}),
+            panel=get_panel_settings(),
         )
+
+    @app.post("/system/identity")
+    @login_required
+    def system_identity_update():
+        require_csrf()
+        try:
+            panel = configure_instance_name(request.form.get("instance_name", ""))
+            flash(f"Имя сервера изменено: {panel['instance_name']}", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return_to = str(request.form.get("return_to") or "").strip()
+        if return_to.startswith("/") and not return_to.startswith("//"):
+            return redirect(return_to)
+        return_tab = request.form.get("return_tab", "resources").strip().lower()
+        if return_tab not in {"resources", "status-services", "logs-diagnostics"}:
+            return_tab = "resources"
+        return redirect(url_for("system_page", tab=return_tab))
 
     @app.get("/system/resources.json")
     @login_required
@@ -2791,6 +3112,573 @@ def create_app() -> Flask:
             user_agent=client_agent(), detail=str(job.get("targetUrl") or ""),
         )
         return redirect(url_for("login", access_changed="1"))
+
+    def json_response(payload: dict[str, object], status: int = 200) -> Response:
+        response = Response(
+            json.dumps(payload, ensure_ascii=False),
+            status=status,
+            content_type="application/json; charset=utf-8",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def agent_bearer_token() -> str:
+        value = request.headers.get("Authorization", "").strip()
+        if not value.lower().startswith("bearer "):
+            raise PermissionError("Не передан токен SG-Node Agent")
+        return value.split(None, 1)[1].strip()
+
+    def render_node_detail_response(node_id: int, *, one_time_command: str = ""):
+        node = get_node(node_id)
+        node_clients = [
+            item for item in get_awg_overview()["clients"]
+            if (node.get("is_local") and not item.get("node_id"))
+            or (not node.get("is_local") and int(item.get("node_id") or 0) == int(node_id))
+        ]
+        return render_template(
+            "node_detail.html",
+            node=node,
+            jobs=list_jobs(node_id),
+            node_clients=node_clients,
+            one_time_command=one_time_command,
+            controller_url=current_public_url(),
+        )
+
+    @app.get("/bootstrap/sg-awg-node.tar.gz")
+    def bootstrap_node_bundle():
+        root = Path(__file__).resolve().parent.parent
+        members = [
+            "01-install-sg-awg-node.sh",
+            "02-connect-sg-awg-node.sh",
+            "deploy/install-node-runtime.sh",
+            "deploy/install-node-agent.sh",
+            "deploy/install-amneziawg.sh",
+            "deploy/install-common.sh",
+            "deploy/connect-node.sh",
+            "node_agent/__init__.py",
+            "node_agent/agent.py",
+        ]
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+            for relative in members:
+                source = root / relative
+                if not source.is_file():
+                    abort(500, description=f"Bootstrap file missing: {relative}")
+                archive.add(source, arcname=f"sg-awg-node/{relative}", recursive=False)
+        response = Response(payload.getvalue(), mimetype="application/gzip")
+        response.headers["Content-Disposition"] = 'attachment; filename="sg-awg-node.tar.gz"'
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/bootstrap/sg-awg-node-install.sh")
+    def bootstrap_node_install_script():
+        base = current_public_url().rstrip("/")
+        bundle_url = f"{base}/bootstrap/sg-awg-node.tar.gz"
+        script = "\n".join([
+            "#!/usr/bin/env bash",
+            "set -Eeuo pipefail",
+            '[[ $EUID -eq 0 ]] || { echo "Запустите команду через sudo" >&2; exit 1; }',
+            "export DEBIAN_FRONTEND=noninteractive",
+            'if ! command -v curl >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq ca-certificates curl; fi',
+            'tmp="$(mktemp -d /tmp/sg-awg-node.XXXXXX)"',
+            "trap 'rm -rf \"$tmp\"' EXIT",
+            f'curl -fsSL --connect-timeout 15 --max-time 180 {bundle_url!r} -o "$tmp/node.tar.gz"',
+            'tar -xzf "$tmp/node.tar.gz" -C "$tmp"',
+            'exec bash "$tmp/sg-awg-node/01-install-sg-awg-node.sh"',
+            "",
+        ])
+        return Response(script, mimetype="text/x-shellscript; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+    @app.get("/bootstrap/sg-awg-node-connect.sh")
+    def bootstrap_node_connect_script():
+        path = Path(__file__).resolve().parent.parent / "deploy" / "connect-node.sh"
+        if not path.is_file():
+            abort(500, description="Connect script missing")
+        return Response(path.read_text(encoding="utf-8"), mimetype="text/x-shellscript; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+    def render_nodes_response(*, one_time_command: str = "", one_time_node: dict[str, object] | None = None):
+        panel = get_panel_settings()
+        controller_url = current_public_url(panel)
+        ensure_controller_identity(panel)
+        cleanup_duplicate_pending_nodes()
+        rows, hidden_duplicate_count = collapse_duplicate_nodes(list_nodes())
+        all_clients = get_awg_overview()["clients"]
+        for item in rows:
+            item["client_count"] = sum(
+                1 for client in all_clients
+                if (not item.get("is_local") and int(client.get("node_id") or 0) == int(item["id"]))
+                or (item.get("is_local") and not client.get("node_id"))
+            )
+        summary = {
+            "total": len(rows),
+            "nodes": max(0, len(rows) - 1),
+            "online": sum(1 for item in rows if item.get("is_local") or item.get("online")),
+            "offline": sum(1 for item in rows if not item.get("is_local") and item.get("effective_state") in {"offline", "error"}),
+            "pending": sum(1 for item in rows if not item.get("is_local") and item.get("effective_state") == "pending"),
+            "clients": sum(1 for client in all_clients if client.get("node_id") and str(client.get("deployment_state") or "active") == "active"),
+        }
+        return render_template(
+            "nodes.html",
+            nodes=rows,
+            summary=summary,
+            controller_url=controller_url,
+            install_command=node_install_command(controller_url),
+            one_time_command=one_time_command,
+            one_time_node=one_time_node,
+            hidden_duplicate_count=hidden_duplicate_count,
+        )
+
+    @app.get("/cluster")
+    @login_required
+    def nodes_page():
+        return render_nodes_response()
+
+    @app.post("/cluster/nodes")
+    @login_required
+    def node_create():
+        require_csrf()
+        name = request.form.get("name", "")
+        try:
+            existing = find_remote_node_by_name(name)
+            if existing is not None:
+                if str(existing.get("effective_state") or "") == "online":
+                    flash("SG-Node с таким именем уже подключена. Новая запись не создана.", "success")
+                    return redirect(url_for("node_detail_page", node_id=int(existing["id"])))
+                node, enrollment_token = renew_enrollment(int(existing["id"]))
+                flash("SG-Node уже была добавлена. Создана новая команда подключения без дубликата.", "success")
+            else:
+                node, enrollment_token = create_node(
+                    name=name,
+                    public_host="",
+                    public_port=585,
+                )
+                flash("SG-Node добавлена. Скопируйте команду ниже и выполните её на сервере.", "success")
+            command = enrollment_command(
+                controller_url=current_public_url(),
+                slug=str(node["slug"]),
+                token=enrollment_token,
+            )
+            return render_nodes_response(one_time_command=command, one_time_node=node)
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("nodes_page"))
+
+    @app.get("/cluster/nodes/<int:node_id>")
+    @login_required
+    def node_detail_page(node_id: int):
+        return render_node_detail_response(node_id)
+
+    @app.get("/cluster/nodes/<int:node_id>/status.json")
+    @login_required
+    def node_status_json(node_id: int):
+        try:
+            node = get_node(node_id)
+            return json_response({
+                "ok": True,
+                "id": int(node["id"]),
+                "state": str(node.get("effective_state") or node.get("state") or "pending"),
+                "online": bool(node.get("online")),
+                "address": str(node.get("public_ipv4") or node.get("public_host") or ""),
+                "last_seen_at": str(node.get("last_seen_at") or ""),
+            })
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            return json_response({"ok": False, "message": str(exc)}, 404)
+
+    @app.post("/cluster/nodes/<int:node_id>/renew")
+    @login_required
+    def node_renew(node_id: int):
+        require_csrf()
+        try:
+            node, enrollment_token = renew_enrollment(node_id)
+            command = enrollment_command(
+                controller_url=current_public_url(),
+                slug=str(node["slug"]),
+                token=enrollment_token,
+            )
+            flash("Создана новая одноразовая команда подключения SG-Node.", "success")
+            if request.form.get("return_to") == "cluster":
+                return render_nodes_response(one_time_command=command, one_time_node=node)
+            return render_node_detail_response(node_id, one_time_command=command)
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/cluster/nodes/<int:node_id>/rename")
+    @login_required
+    def node_rename(node_id: int):
+        require_csrf()
+        try:
+            updated = set_node_name(node_id, request.form.get("name", ""))
+            flash(f"Имя SG-Node изменено: {updated['name']}", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/cluster/nodes/<int:node_id>/country")
+    @login_required
+    def node_country_update(node_id: int):
+        require_csrf()
+        try:
+            automatic = request.form.get("mode", request.form.get("country_mode", "")) == "auto"
+            node = get_node(node_id)
+            if automatic:
+                public_ip = (
+                    detect_public_ipv4(force=True) if node.get("is_local")
+                    else str(node.get("public_ipv4") or "")
+                )
+                code = detect_country_code(public_ip, force=True) if public_ip else ""
+                set_node_country(node_id, code, automatic=True)
+                if code:
+                    flash(f"Страна определена автоматически: {country_name(code)} ({code}).", "success")
+                else:
+                    flash("Страну определить не удалось. Показан нейтральный значок; можно указать код вручную.", "warning")
+            else:
+                updated = set_node_country(node_id, request.form.get("country_code", ""), automatic=False)
+                flash(f"Страна сервера сохранена: {country_name(updated['country_code'])} ({updated['country_code']}).", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/cluster/nodes/<int:node_id>/toggle")
+    @login_required
+    def node_toggle(node_id: int):
+        require_csrf()
+        try:
+            node = get_node(node_id)
+            enabled = str(node.get("effective_state")) == "disabled"
+            set_node_enabled(node_id, enabled)
+            flash("SG-Node включена." if enabled else "SG-Node отключена.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/cluster/nodes/<int:node_id>/delete")
+    @login_required
+    def node_delete(node_id: int):
+        require_csrf()
+        try:
+            delete_node(node_id)
+            flash("SG-Node удалена из Cluster.", "success")
+            return redirect(url_for("nodes_page"))
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/cluster/nodes/<int:node_id>/jobs")
+    @login_required
+    def node_job_create(node_id: int):
+        require_csrf()
+        try:
+            job = queue_job(node_id, request.form.get("kind", "refresh"))
+            flash(f"Задание #{job['id']} передано SG-Node.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("node_detail_page", node_id=node_id))
+
+    @app.post("/api/cluster/v1/enroll")
+    def node_agent_enroll():
+        payload = request.get_json(silent=True) or {}
+        try:
+            node, agent_token = enroll_node(
+                slug=str(payload.get("node") or ""),
+                enrollment_token=str(payload.get("token") or ""),
+                metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+            )
+            return json_response({
+                "ok": True,
+                "node_id": int(node["id"]),
+                "node": str(node["slug"]),
+                "agent_token": agent_token,
+                "heartbeat_seconds": 30,
+            })
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            return json_response({"ok": False, "message": str(exc)}, 403)
+
+    @app.post("/api/cluster/v1/nodes/<slug>/heartbeat")
+    def node_agent_heartbeat(slug: str):
+        payload = request.get_json(silent=True) or {}
+        try:
+            node = authenticate_agent(slug, agent_bearer_token())
+            updated = heartbeat(int(node["id"]), payload)
+            return json_response({"ok": True, "state": updated["effective_state"]})
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            return json_response({"ok": False, "message": str(exc)}, 403)
+
+    @app.get("/api/cluster/v1/nodes/<slug>/jobs/next")
+    def node_agent_next_job(slug: str):
+        try:
+            node = authenticate_agent(slug, agent_bearer_token())
+            job = claim_next_job(int(node["id"]))
+            return json_response({"ok": True, "job": job})
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            return json_response({"ok": False, "message": str(exc)}, 403)
+
+    @app.post("/api/cluster/v1/nodes/<slug>/jobs/<int:job_id>/result")
+    def node_agent_finish_job(slug: str, job_id: int):
+        payload = request.get_json(silent=True) or {}
+        try:
+            node = authenticate_agent(slug, agent_bearer_token())
+            job = finish_job(
+                int(node["id"]),
+                job_id,
+                ok=bool(payload.get("ok")),
+                result=payload.get("result") if isinstance(payload.get("result"), dict) else {},
+            )
+            return json_response({"ok": True, "job": job})
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            return json_response({"ok": False, "message": str(exc)}, 403)
+
+    def render_cascade_response(
+        *, one_time_link: str = "", one_time_enrollment=None,
+        one_time_config: str = "", one_time_client=None,
+        cascade_mode: str | None = None,
+    ):
+        try:
+            reconcile_all_cascades()
+        except Exception:
+            pass
+        servers = cascade_servers()
+        links = list_cascade_links(include_disabled=False)
+        external = get_cascade_settings()
+        exit_service = get_exit_service_client()
+        active_count = sum(1 for item in links if item.get("state") == "active")
+        if external.get("enabled"):
+            active_count += 1
+        selected_mode = str(cascade_mode or request.args.get("mode") or "cluster").strip().lower()
+        if selected_mode not in {"cluster", "external"}:
+            selected_mode = "cluster"
+        return render_template(
+            "cascade.html",
+            servers=servers,
+            cascade_links=links,
+            external_cascade=external,
+            external_exit_service=exit_service,
+            active_cascade_count=active_count,
+            one_time_link=one_time_link,
+            one_time_enrollment=one_time_enrollment,
+            one_time_config=one_time_config,
+            one_time_client=one_time_client,
+            cascade_mode=selected_mode,
+        )
+
+    @app.get("/cascade")
+    @login_required
+    def cascade_page():
+        return render_cascade_response()
+
+    @app.post("/cascade/create")
+    @login_required
+    def cluster_cascade_create():
+        require_csrf()
+        try:
+            entry_id = int(request.form.get("entry_node_id", "0"))
+            exit_id = int(request.form.get("exit_node_id", "0"))
+            entry_node = get_node(entry_id)
+            if entry_node.get("is_local") and get_cascade_settings().get("enabled"):
+                raise ValueError(
+                    "На этом сервере уже включён Cascade с другим самостоятельным сервером. "
+                    "Сначала верните прямой выход в интернет"
+                )
+            link = create_cluster_cascade_link(entry_node_id=entry_id, exit_node_id=exit_id)
+            state = str(link.get("state") or "")
+            if state == "active":
+                flash("Серверный маршрут Cascade настроен. Переподключите клиент и выполните проверку подключения.", "success")
+            else:
+                flash("Настройка Cascade началась. SG-Node применяют служебное подключение автоматически.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="cluster"))
+
+    @app.post("/cascade/<int:link_id>/disable")
+    @login_required
+    def cluster_cascade_disable(link_id: int):
+        require_csrf()
+        try:
+            link = disable_cluster_cascade_link(link_id)
+            if str(link.get("state")) == "disabled":
+                flash("Прямой выход в интернет восстановлен.", "success")
+            else:
+                flash("Возврат к прямому выходу начат. SG-Node завершит его автоматически.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="cluster"))
+
+    @app.post("/cascade/<int:link_id>/test")
+    @login_required
+    def cluster_cascade_test(link_id: int):
+        require_csrf()
+        try:
+            link = test_cluster_cascade_link(link_id)
+            if link.get("entry", {}).get("is_local"):
+                flash(f"Серверный маршрут готов. Проверенный выходной IP: {link.get('last_exit_ip') or 'подтверждён через сервер выхода'}.", "success")
+            else:
+                flash("Проверка отправлена серверу подключения. Результат появится автоматически.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="cluster"))
+
+    @app.post("/cascade/exit-client")
+    @login_required
+    def cascade_exit_client_create():
+        require_csrf()
+        try:
+            enrollment = create_exit_enrollment(
+                name=request.form.get("name", "sg-cascade-entry"),
+                ttl_minutes=int(request.form.get("ttl_minutes", "30") or 30),
+            )
+            flash(
+                "Одноразовая ссылка создана. Скопируйте её на сервер подключения в течение 30 минут.",
+                "success",
+            )
+            return render_cascade_response(
+                one_time_link=str(enrollment["link"]),
+                one_time_enrollment=enrollment,
+                one_time_client=enrollment.get("client"),
+                cascade_mode="external",
+            )
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="exit"))
+
+    @app.post("/cascade/exit-client/remove")
+    @login_required
+    def cascade_exit_client_remove():
+        require_csrf()
+        try:
+            removed = remove_exit_service_client()
+            flash(
+                "Роль Exit отключена: служебный клиент удалён." if removed else "Служебный клиент Exit уже отсутствует.",
+                "success",
+            )
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="exit"))
+
+    @app.post("/cascade/configure")
+    @login_required
+    def cascade_configure():
+        require_csrf()
+        try:
+            local_cluster_link = next(
+                (item for item in list_cascade_links(include_disabled=False)
+                 if item.get("entry", {}).get("is_local") and item.get("state") != "disabled"),
+                None,
+            )
+            if local_cluster_link:
+                raise ValueError(
+                    "На этом сервере уже включён Cascade через Cluster. "
+                    "Сначала верните прямой выход в интернет"
+                )
+            enrollment_link = request.form.get("enrollment_link", "").strip()
+            if enrollment_link:
+                result = configure_cascade_from_link(enrollment_link)
+                enrollment = result.get("enrollment", {})
+            else:
+                result = configure_cascade(
+                    config_text=request.form.get("config_text", ""),
+                    exit_name=request.form.get("exit_name", "Exit SG-AWG"),
+                    client_ids=[int(value) for value in request.form.getlist("client_id") if value.isdigit()],
+                    apply_to_all=request.form.get("apply_to_all") == "1",
+                )
+                enrollment = {"exit_name": result.get("exit_name") or "сервер выхода"}
+            check = test_cascade(probe_public_ip=not app.config.get("TESTING"))
+            if check.get("ok"):
+                flash(
+                    f"Ссылка принята, серверный маршрут готов. Выход: {check.get('exit_ip') or enrollment.get('exit_name') or 'Outbound'}. "
+                    "Выберите клиентов, откройте на клиенте любой сайт и нажмите «Проверить подключение клиента».",
+                    "success",
+                )
+            else:
+                flash(f"Ссылка принята, но серверный маршрут не готов: {check.get('message')}", "error")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="entry"))
+
+    @app.post("/cascade/assign")
+    @login_required
+    def cascade_assign():
+        require_csrf()
+        try:
+            assign_cascade_clients(
+                [int(value) for value in request.form.getlist("client_id") if value.isdigit()]
+            )
+            flash("Выбранные клиенты сразу направлены через Cascade. Старые сетевые сессии сброшены автоматически.", "success")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="clients"))
+
+    @app.post("/cascade/test")
+    @login_required
+    def cascade_test():
+        require_csrf()
+        try:
+            result = test_cascade(probe_public_ip=not app.config.get("TESTING"))
+            if result["ok"]:
+                flash(
+                    str(result["message"]),
+                    "success" if result.get("ok") else "warning",
+                )
+            else:
+                flash(str(result["message"]), "error")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="check", _anchor="client-check-result"))
+
+    @app.post("/cascade/client-test")
+    @login_required
+    def cascade_client_test():
+        require_csrf()
+        try:
+            result = test_cascade_client()
+            flash(str(result["message"]), "success" if result.get("ok") else "warning")
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", step="client-check", _anchor="client-check-result"))
+
+    @app.post("/cascade/disable")
+    @login_required
+    def cascade_disable():
+        require_csrf()
+        try:
+            disable_cascade()
+            flash(
+                "Inbound очищен: клиенты возвращены на прямой выход, локальный служебный Outbound и policy routing удалены. "
+                "Для полного сброса варианта 2 удалите служебный доступ на панели сервера выхода.",
+                "success",
+            )
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external"))
+
+    @app.post("/cascade/reset")
+    @login_required
+    def cascade_reset():
+        require_csrf()
+        try:
+            previous = get_cascade_settings()
+            exit_name = str(previous.get("exit_name") or "сервера выхода")
+            disable_cascade()
+            flash(
+                f"Шаг 1 из 2 выполнен: Inbound очищен и клиенты снова используют Direct. "
+                f"Теперь откройте Cascade на панели {exit_name} и удалите служебный доступ Outbound.",
+                "success",
+            )
+        except (ValueError, PermissionError, AWGPanelError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("cascade_page", mode="external", reset="outbound"))
+
+    @app.get("/cascade/json")
+    @login_required
+    def cascade_json_page():
+        return Response(
+            json.dumps(cascade_document(), ensure_ascii=False, indent=2) + "\n",
+            content_type="application/json; charset=utf-8",
+        )
+
+    @app.get("/help")
+    @login_required
+    def help_page():
+        return render_template("help.html")
 
     @app.get("/updates")
     @login_required

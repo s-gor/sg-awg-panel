@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}Cascade · SG-AWG-Panel{% endblock %}
+{% block section %}CASCADE{% endblock %}
+{% block heading %}Cascade{% endblock %}
+{% block subtitle %}Подключение к одному серверу и выход в интернет через другой{% endblock %}
+{% block body_class %}ui-standard-page cascade-page cascade-registry-page{% endblock %}
+{% block heading_actions %}<a class="button secondary" href="{{ url_for('help_page') }}#cascade">Как это работает</a>{% endblock %}
+{% block content %}
+
+<section class="panel-card cascade-simple-hero">
+  <div class="cascade-simple-copy">
+    <span class="section-kicker">ПРОСТАЯ СХЕМА</span>
+    <h2>Подключайтесь к одному серверу, а выходите в интернет через другой</h2>
+    <p>Клиентские конфигурации менять не нужно. Cascade работает на серверах и остаётся прозрачным для клиентов выбранного сервера подключения.</p>
+  </div>
+  <div class="cascade-route-demo" aria-label="Схема Cascade">
+    <div class="cascade-route-point client"><span>💻</span><b>Клиент</b><small>SG Client или AmneziaWG</small></div>
+    <i>→</i>
+    <div class="cascade-route-point entry"><span>①</span><b>Сервер подключения (Inbound)</b><small>Сюда подключается VPN-клиент</small></div>
+    <i>→</i>
+    <div class="cascade-route-point exit"><span>②</span><b>Сервер выхода в интернет (Outbound)</b><small>Его публичный IP видят сайты</small></div>
+    <i>→</i>
+    <div class="cascade-route-point internet"><span>◎</span><b>Интернет</b><small>Сайты и сервисы</small></div>
+  </div>
+</section>
+
+<section class="panel-card cascade-mode-card">
+  <div class="card-heading">
+    <div>
+      <span class="section-kicker">НОВЫЙ МАРШРУТ</span>
+      <h2>Как подключить сервер выхода?</h2>
+      <p>Выберите готовую SG-Node из Cluster или соедините две самостоятельные SG-AWG-Panel одной ссылкой.</p>
+    </div>
+    <span class="status-badge {{ 'success' if active_cascade_count else '' }}">{{ active_cascade_count }} активно</span>
+  </div>
+
+  <nav class="cascade-mode-switch" aria-label="Способ настройки Cascade">
+    <a class="cascade-mode-choice {{ 'active' if cascade_mode == 'cluster' else '' }}" href="{{ url_for('cascade_page', mode='cluster') }}" aria-current="{{ 'page' if cascade_mode == 'cluster' else 'false' }}">
+      <span class="cascade-mode-icon">◫</span>
+      <strong>Вариант 1 · Из Cluster</strong>
+      <small>Controller или подключённая SG-Node. Самый простой вариант для постоянного управления.</small>
+      <em>Открыть вариант 1 →</em>
+    </a>
+    <a class="cascade-mode-choice {{ 'active' if cascade_mode == 'external' else '' }}" href="{{ url_for('cascade_page', mode='external') }}" aria-current="{{ 'page' if cascade_mode == 'external' else 'false' }}">
+      <span class="cascade-mode-icon">↗</span>
+      <strong>Вариант 2 · Другой сервер</strong>
+      <small>Две самостоятельные панели без SG-Node. Нужна только одноразовая ссылка.</small>
+      <em>Открыть вариант 2 →</em>
+    </a>
+  </nav>
+</section>
+
+<section class="panel-card cascade-create-card" data-cascade-panel="cluster" {{ 'hidden' if cascade_mode != 'cluster' else '' }}>
+  <div class="card-heading">
+    <div>
+      <span class="section-kicker">ВАРИАНТ 1 · CLUSTER</span>
+      <h2>Выберите два управляемых сервера</h2>
+      <p>Controller и подключённые SG-Node уже известны панели, поэтому ключи и маршруты передаются автоматически.</p>
+    </div>
+  </div>
+
+  {% set selectable = servers|selectattr('cascade_ready')|list %}
+  {% if selectable|length < 2 %}
+    <div class="alert warning cascade-requirement-alert">
+      <b>Для этого варианта нужны два готовых сервера.</b> Подключите SG-Node в Cluster. Либо выберите выше «Другой сервер» и соедините две самостоятельные панели ссылкой.
+    </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('cluster_cascade_create') }}" class="cascade-simple-form" id="cascade-create-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="cascade-server-select-card entry">
+      <div class="cascade-select-number">1</div>
+      <label for="cascade-entry-server">
+        <strong>Сервер подключения (Inbound)</strong>
+        <span>Сервер, к которому подключается ваш VPN-клиент.</span>
+      </label>
+      <div class="flag-select-shell">
+        {{ country_flag_icon('', 'Страна не выбрана', 'flag-select-preview') }}
+        <select id="cascade-entry-server" name="entry_node_id" required {{ 'disabled' if selectable|length < 2 else '' }} data-flag-select>
+          <option value="" data-country="">Выберите сервер подключения (Inbound)</option>
+          {% for server in servers %}
+            <option value="{{ server.id }}" data-country="{{ server.country_code }}" data-label="{{ server.name }}" data-ready="{{ 1 if server.cascade_ready else 0 }}" {{ 'disabled' if not server.cascade_ready else '' }}>
+              {{ server.country_name }} · {{ server.name }} · {{ server.public_ipv4 or server.public_host or 'адрес не получен' }}{% if not server.cascade_ready %} — недоступен{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <small class="cascade-select-help">Именно этот сервер указан в конфигурации клиента.</small>
+    </div>
+
+    <div class="cascade-form-arrow" aria-hidden="true">→</div>
+
+    <div class="cascade-server-select-card exit">
+      <div class="cascade-select-number">2</div>
+      <label for="cascade-exit-server">
+        <strong>Сервер выхода в интернет (Outbound)</strong>
+        <span>Сервер, через который трафик выходит в интернет.</span>
+      </label>
+      <div class="flag-select-shell">
+        {{ country_flag_icon('', 'Страна не выбрана', 'flag-select-preview') }}
+        <select id="cascade-exit-server" name="exit_node_id" required {{ 'disabled' if selectable|length < 2 else '' }} data-flag-select>
+          <option value="" data-country="">Выберите сервер выхода (Outbound)</option>
+          {% for server in servers %}
+            <option value="{{ server.id }}" data-country="{{ server.country_code }}" data-label="{{ server.name }}" data-ready="{{ 1 if server.cascade_ready else 0 }}" {{ 'disabled' if not server.cascade_ready else '' }}>
+              {{ server.country_name }} · {{ server.name }} · {{ server.public_ipv4 or server.public_host or 'адрес не получен' }}{% if not server.cascade_ready %} — недоступен{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <small class="cascade-select-help">Сайты будут видеть публичный IP этого сервера.</small>
+    </div>
+
+    <div class="cascade-confirm-preview" id="cascade-confirm-preview" hidden>
+      <span>КАК БУДЕТ РАБОТАТЬ</span>
+      <p>Клиент подключается к <b id="cascade-preview-entry">—</b>, а в интернет выходит через <b id="cascade-preview-exit">—</b>.</p>
+    </div>
+    <button class="button primary cascade-enable-button" type="submit" {{ 'disabled' if selectable|length < 2 else '' }}>Включить Cascade</button>
+  </form>
+
+  {% if servers|rejectattr('cascade_ready')|list %}
+  <details class="cascade-unavailable-details">
+    <summary>Почему некоторые серверы недоступны</summary>
+    <div>{% for server in servers if not server.cascade_ready %}<p><b>{{ country_flag_icon(server.country_code, server.country_name) }} {{ server.name }}:</b> {{ server.cascade_ready_reason }}</p>{% endfor %}</div>
+  </details>
+  {% endif %}
+</section>
+
+<section class="panel-card cascade-external-card" data-cascade-panel="external" {{ 'hidden' if cascade_mode != 'external' else '' }}>
+  <div class="card-heading">
+    <div>
+      <span class="section-kicker">ВАРИАНТ 2 · ДРУГОЙ СЕРВЕР</span>
+      <h2>Соедините две самостоятельные панели одной ссылкой</h2>
+      <p>Полноценную SG-Node подключать не нужно. На сервере выхода создайте ссылку, а на сервере подключения вставьте её и нажмите одну кнопку.</p>
+    </div>
+  </div>
+
+  <div class="cascade-role-explainer">
+    <div class="outbound"><b>Сервер выхода в интернет (Outbound)</b><span>Это сервер, IP которого будут видеть сайты.</span></div>
+    <div class="inbound"><b>Сервер подключения (Inbound)</b><span>Это сервер, к которому подключается ваш VPN-клиент.</span></div>
+  </div>
+
+  <div class="cascade-external-checklist" aria-label="Порядок настройки двух самостоятельных серверов">
+    <div><span>1</span><b>Определите роли</b><small>Где подключается клиент и чей IP должен видеть интернет.</small></div>
+    <div><span>2</span><b>Создайте ссылку на Outbound</b><small>Ссылка содержит только служебный профиль и действует ограниченное время.</small></div>
+    <div><span>3</span><b>Импортируйте на Inbound</b><small>Панель создаст Outbound и направит обычных клиентов через него.</small></div>
+    <div><span>4</span><b>Проверьте оба маршрута</b><small>Сначала серверный путь, затем активное соединение клиента с меткой маршрута Cascade.</small></div>
+  </div>
+
+  <div class="cascade-external-flow">
+    <article class="cascade-external-step exit-step">
+      <div class="cascade-external-number">1</div>
+      <div class="cascade-external-copy">
+        <span class="section-kicker">НА СЕРВЕРЕ ВЫХОДА (OUTBOUND)</span>
+        <h3>Создайте одноразовую ссылку</h3>
+        <p>Откройте Cascade на сервере, IP которого должны видеть сайты. Это ваш сервер выхода в интернет (Outbound). Нажмите кнопку ниже и скопируйте готовую ссылку целиком.</p>
+      </div>
+      <form method="post" action="{{ url_for('cascade_exit_client_create') }}" class="cascade-external-action-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="name" value="sg-cascade-entry">
+        <input type="hidden" name="ttl_minutes" value="30">
+        <button class="button primary" type="submit">Создать ссылку для Cascade</button>
+      </form>
+
+      {% if one_time_link %}
+      <div class="cascade-enrollment-result">
+        <div class="cascade-enrollment-status">
+          <span>✓</span>
+          <div><strong>Ссылка готова</strong><small>Действует до {{ one_time_enrollment.expires_at }}. После импорта ссылка больше не нужна.</small></div>
+        </div>
+        <textarea id="cascade-enrollment-link" readonly spellcheck="false">{{ one_time_link }}</textarea>
+        <button class="button primary" type="button" data-copy-target="cascade-enrollment-link">Копировать ссылку</button>
+        <div class="cascade-enrollment-meta">
+          <span>Сервер: <b>{{ country_flag_icon(one_time_enrollment.exit_country_code, one_time_enrollment.exit_country_code|country_name) }} {{ one_time_enrollment.exit_name }}</b></span>
+          <span>Endpoint: <code>{{ one_time_enrollment.endpoint }}</code></span>
+        </div>
+      </div>
+      {% elif external_exit_service %}
+      <div class="beta9-note"><b>Служебный доступ уже создан.</b><span>Чтобы получить новую ссылку, нажмите «Создать ссылку для Cascade» ещё раз. Предыдущий служебный доступ будет заменён.</span></div>
+      {% endif %}
+    </article>
+
+    <div class="cascade-external-arrow" aria-hidden="true">→</div>
+
+    <article class="cascade-external-step entry-step">
+      <div class="cascade-external-number">2</div>
+      <div class="cascade-external-copy">
+        <span class="section-kicker">НА СЕРВЕРЕ ПОДКЛЮЧЕНИЯ (INBOUND)</span>
+        <h3>Вставьте ссылку и включите Cascade</h3>
+        <p>Откройте Cascade на сервере, к которому подключается ваш VPN-клиент. Это сервер подключения (Inbound). Вставьте сюда ссылку с сервера выхода.</p>
+      </div>
+      <form method="post" action="{{ url_for('cascade_configure') }}" class="cascade-enrollment-import-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="external-cascade-link"><span>Одноразовая ссылка Cascade</span>
+          <textarea id="external-cascade-link" name="enrollment_link" rows="5" required spellcheck="false" placeholder="sg-awg-cascade://v1/..."></textarea>
+          <small>Скопируйте ссылку целиком. Она временная и используется один раз для настройки этого маршрута.</small>
+        </label>
+        <div class="cascade-import-note">
+          <b>Клиентские конфигурации менять не нужно.</b>
+          <span>Все обычные клиенты этого сервера будут выходить через выбранный Outbound-сервер.</span>
+        </div>
+        <button class="button primary" type="submit">Проверить ссылку и включить Cascade</button>
+      </form>
+    </article>
+  </div>
+
+  <details class="cascade-technical-details">
+    <summary>Технические детали</summary>
+    <p>Сервер выхода создаёт отдельный служебный peer на обычном UDP-порту 585. Сервер подключения импортирует его автоматически и применяет policy routing. Ключи и маршруты вручную вводить не требуется.</p>
+  </details>
+</section>
+
+<section class="cascade-links-section">
+  <div class="section-heading-inline"><div><span class="section-kicker">ТЕКУЩИЕ МАРШРУТЫ</span><h2>Активные подключения Cascade</h2><p>Cluster-маршруты и подключение к другому самостоятельному серверу отображаются вместе.</p></div></div>
+
+  {% if external_cascade.enabled %}
+  {% set external_state = external_cascade.last_state or 'pending_check' %}
+  {% set external_label = {
+    'pending_check':'Настраивается',
+    'configured':'Требует проверки',
+    'server_ready':'Серверный маршрут готов',
+    'healthy':'Cascade работает',
+    'error':'Ошибка',
+    'disabled':'Отключён'
+  }.get(external_state, external_state) %}
+  <article class="panel-card cascade-link-card state-{{ external_state }} external-route-card">
+    <header>
+      <div><span class="section-kicker">ДРУГОЙ СЕРВЕР</span><h3>{{ country_flag_icon(layout_country_code, layout_country_code|country_name) }} {{ layout_instance_name }} → {{ country_flag_icon(external_cascade.exit_country_code, external_cascade.exit_country_code|country_name) }} {{ external_cascade.exit_name or 'Сервер выхода' }}</h3></div>
+      <span class="status-badge {{ 'success' if external_state == 'healthy' else ('danger' if external_state == 'error' else 'warning') }}">{{ external_label }}</span>
+    </header>
+    <div class="cascade-live-route">
+      <div><span>СЕРВЕР ПОДКЛЮЧЕНИЯ (INBOUND)</span><strong>{{ country_flag_icon(layout_country_code, layout_country_code|country_name) }} {{ layout_instance_name }}</strong><small>К этому серверу подключается VPN-клиент</small></div>
+      <i>→</i>
+      <div><span>СЕРВЕР ВЫХОДА (OUTBOUND)</span><strong>{{ country_flag_icon(external_cascade.exit_country_code, external_cascade.exit_country_code|country_name) }} {{ external_cascade.exit_name or 'Другой SG-AWG-сервер' }}</strong><small>{{ external_cascade.exit_host or 'endpoint не получен' }}</small></div>
+    </div>
+
+    <div class="cascade-verification-steps">
+      <div class="done"><span>✓</span><b>Ссылка принята</b><small>Служебный профиль сохранён.</small></div>
+      <div class="{{ 'done' if external_state in ('server_ready','healthy') else ('failed' if external_state == 'error' else '') }}"><span>{{ '✓' if external_state in ('server_ready','healthy') else ('!' if external_state == 'error' else '2') }}</span><b>Серверный маршрут</b><small>{{ 'Outbound поднят и маршрут применён.' if external_state in ('server_ready','healthy') else (external_cascade.last_error or 'Ожидает автоматической проверки.') }}</small></div>
+      <div class="{{ 'done' if external_cascade.assigned_clients else 'failed' }}"><span>{{ '✓' if external_cascade.assigned_clients else '!' }}</span><b>Клиенты назначены</b><small>{{ external_cascade.assigned_clients }} активных клиентов направлено через Outbound.</small></div>
+      <div class="{{ 'done' if external_state == 'healthy' else '' }}"><span>{{ '✓' if external_state == 'healthy' else '4' }}</span><b>Подключение клиента</b><small>{{ 'Подтверждены handshake, трафик и правильная метка маршрута Cascade.' if external_state == 'healthy' else (external_cascade.last_client_error or 'Откройте на клиенте любой сайт и нажмите проверку. Переподключать VPN не нужно.') }}</small></div>
+    </div>
+
+    <div class="cascade-link-facts">
+      <div><span>Клиентов через маршрут</span><b>{{ external_cascade.assigned_clients }}</b></div>
+      <div><span>Ожидаемый видимый IP</span><b>{{ external_cascade.last_exit_ip or (external_cascade.exit_host.split(':')[0] if external_cascade.exit_host else 'после серверной проверки') }}</b></div>
+      <div><span>Сервер проверен</span><b>{{ external_cascade.last_test_at or 'ещё не проверен' }}</b></div>
+      <div><span>Клиент проверен</span><b>{{ external_cascade.last_client_test_at or 'ещё не проверен' }}</b></div>
+    </div>
+    {% if external_cascade.last_error %}<div class="alert error"><b>Серверный маршрут не готов.</b> {{ external_cascade.last_error }}</div>{% endif %}
+    {% if external_cascade.assigned_clients == 0 %}<div class="alert warning"><b>Нет клиентов в маршруте.</b> Создайте или включите клиента на сервере подключения.</div>{% endif %}
+    <div class="cascade-client-check-note"><b>Проверки разделены честно:</b><span>«Серверный маршрут» подтверждает AWG Outbound и policy routing. «Подключение клиента» подтверждает свежий handshake, трафик и наличие правильной метки Cascade у активного соединения. При смене маршрута старые сессии сбрасываются автоматически.</span></div>
+    <div class="cascade-link-actions">
+      <a class="button secondary" href="{{ url_for('clients_page', server='controller') }}">Клиенты сервера подключения</a>
+      <form method="post" action="{{ url_for('cascade_test') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit">Проверить серверный маршрут</button></form>
+      <form method="post" action="{{ url_for('cascade_client_test') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button primary" type="submit" {{ 'disabled' if external_state not in ('server_ready','healthy') else '' }}>Проверить маршрут клиента</button></form>
+      <form method="post" action="{{ url_for('cascade_reset') }}" data-confirm-kicker="ПОЛНЫЙ СБРОС CASCADE" data-confirm-title="Отключить Cascade и начать заново?" data-confirm-subtitle="Сейчас будет очищен сервер подключения (Inbound)." data-confirm-message="Все обычные клиенты этого сервера вернутся к прямому выходу. Затем откройте Cascade на сервере выхода {{ external_cascade.exit_name or 'Outbound' }} и удалите там служебный доступ вторым шагом." data-confirm-action="Очистить Inbound" data-confirm-tone="danger"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger" type="submit">Отключить Cascade и начать заново</button></form>
+    </div>
+    <div id="client-check-result" class="cascade-check-result {{ 'success' if external_state == 'healthy' else ('warning' if external_cascade.last_client_test_at else '') }}">
+      <span>{{ '✓' if external_state == 'healthy' else ('!' if external_cascade.last_client_test_at else 'i') }}</span>
+      <div>
+        {% if external_state == 'healthy' %}
+          <b>Маршрут клиента через Cascade подтверждён</b>
+          <small>Найдено активное соединение с правильной меткой маршрута. Ожидаемый внешний IP: {{ external_cascade.last_exit_ip or 'проверяется отдельно серверным тестом' }}. VPN переподключать не требуется.</small>
+        {% elif external_cascade.last_client_test_at %}
+          <b>Маршрут клиента пока не подтверждён</b>
+          <small>{{ external_cascade.last_client_error or 'Откройте на клиенте любой сайт и повторите проверку.' }}</small>
+        {% else %}
+          <b>Проверка маршрута клиента ещё не запускалась</b>
+          <small>После проверки серверного маршрута откройте на клиенте любой сайт и нажмите «Проверить маршрут клиента». Результат останется здесь.</small>
+        {% endif %}
+      </div>
+    </div>
+    <div class="cascade-reset-roadmap">
+      <div class="cascade-reset-heading"><span class="section-kicker">ПОЛНЫЙ СБРОС ВАРИАНТА 2</span><b>Два независимых сервера очищаются двумя отдельными действиями</b></div>
+      <div class="cascade-reset-steps">
+        <div class="current"><span>1</span><div><b>Очистить Inbound — этот сервер</b><small>Клиенты вернутся к Direct, служебный Outbound и policy routing будут удалены.</small></div></div>
+        <div><span>2</span><div><b>Очистить Outbound — {{ external_cascade.exit_name or 'сервер выхода' }}</b><small>На его панели откройте Cascade и нажмите «Удалить служебный доступ Outbound».</small></div></div>
+      </div>
+    </div>
+    <details class="cascade-technical-details"><summary>Технические детали и диагностика</summary><p>Endpoint: <code>{{ external_cascade.exit_host or '—' }}</code>. Outbound ID: <code>{{ external_cascade.outbound_id or '—' }}</code>. Последняя ошибка клиента: {{ external_cascade.last_client_error or 'нет' }}.</p></details>
+  </article>
+  {% endif %}
+
+  {% if cascade_links %}
+    <div class="cascade-link-grid">
+      {% for link in cascade_links %}
+      {% set state_label = {
+        'preparing_exit':'Настраивается сервер выхода',
+        'preparing_entry':'Настраивается сервер подключения',
+        'active':'Серверный маршрут готов',
+        'disabling_entry':'Возвращается прямой выход',
+        'disabling_exit':'Удаляется служебное подключение',
+        'error':'Ошибка'
+      }.get(link.state, link.state) %}
+      <article class="panel-card cascade-link-card state-{{ link.state }}">
+        <header>
+          <div><span class="section-kicker">CASCADE #{{ link.id }} · CLUSTER</span><h3>{{ country_flag_icon(link.entry.country_code, link.entry.country_name) }} {{ link.entry.name }} → {{ country_flag_icon(link.exit.country_code, link.exit.country_name) }} {{ link.exit.name }}</h3></div>
+          <span class="status-badge {{ 'warning' if link.state == 'active' else ('danger' if link.state == 'error' else 'warning') }}">{{ state_label }}</span>
+        </header>
+
+        <div class="cascade-live-route">
+          <div><span>СЕРВЕР ПОДКЛЮЧЕНИЯ (INBOUND)</span><strong>{{ country_flag_icon(link.entry.country_code, link.entry.country_name) }} {{ link.entry.name }}</strong><small>{{ link.entry.public_ipv4 or link.entry.public_host or 'адрес не получен' }}:585</small></div>
+          <i>→</i>
+          <div><span>СЕРВЕР ВЫХОДА (OUTBOUND)</span><strong>{{ country_flag_icon(link.exit.country_code, link.exit.country_name) }} {{ link.exit.name }}</strong><small>{{ link.exit.public_ipv4 or link.exit.public_host or 'адрес не получен' }}:585</small></div>
+        </div>
+
+        <div class="cascade-link-facts">
+          <div><span>Клиентов через маршрут</span><b>{{ link.client_count }}</b></div>
+          <div><span>IP, который видят сайты</span><b>{{ link.visible_exit_ip or 'появится после проверки' }}</b></div>
+          <div><span>Последняя проверка</span><b>{{ link.last_test_at or 'ещё не выполнялась' }}</b></div>
+        </div>
+
+        {% if link.state in ('preparing_exit','preparing_entry','disabling_entry','disabling_exit') %}
+          <div class="beta9-note"><b>Панель продолжает настройку автоматически.</b><span>SG-Node получает задание через Agent. Обновите страницу через несколько секунд.</span></div>
+        {% endif %}
+        {% if link.last_error %}<div class="alert error"><b>Не удалось применить Cascade.</b> {{ link.last_error }}</div>{% endif %}
+
+        <div class="cascade-link-actions">
+          <a class="button secondary" href="{{ url_for('clients_page', server=('controller' if link.entry.is_local else link.entry.id)) }}">Клиенты сервера подключения</a>
+          <form method="post" action="{{ url_for('cluster_cascade_test', link_id=link.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary" type="submit" {{ 'disabled' if link.state != 'active' else '' }}>Проверить серверный маршрут</button></form>
+          <form method="post" action="{{ url_for('cluster_cascade_disable', link_id=link.id) }}" data-confirm-title="Отключить Cluster Cascade?" data-confirm-message="Все клиенты сервера {{ link.entry.name|e }} вернутся к прямому выходу. Панель удалит служебный маршрут на Inbound и служебный доступ на Outbound." data-confirm-action="Отключить Cascade" data-confirm-tone="warning"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button warning" type="submit" {{ 'disabled' if link.state in ('disabling_entry','disabling_exit') else '' }}>Вернуть прямой выход в интернет</button></form>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if not cascade_links and not external_cascade.enabled %}
+    <div class="panel-card empty-state cascade-empty-state"><h3>Cascade пока не настроен</h3><p>Выберите вариант выше: готовая SG-Node из Cluster или другой самостоятельный сервер по одноразовой ссылке.</p></div>
+  {% endif %}
+</section>
+
+{% if external_exit_service %}
+<section class="panel-card cascade-exit-service-card cascade-outbound-reset-card">
+  <div class="cascade-outbound-reset-copy">
+    <span class="section-kicker">OUTBOUND · ШАГ 2 ПОЛНОГО СБРОСА</span>
+    <h2>На этом сервере активен служебный доступ Cascade</h2>
+    <p>Peer <b>{{ external_exit_service.name }}</b> разрешает другому Inbound-серверу выходить в интернет через этот сервер. Это не обычный клиентский профиль.</p>
+    <ol><li>Сначала на панели Inbound нажмите «Отключить Cascade и начать заново».</li><li>Затем вернитесь сюда и удалите служебный доступ Outbound.</li></ol>
+  </div>
+  <form method="post" action="{{ url_for('cascade_exit_client_remove') }}" data-confirm-kicker="ПОЛНЫЙ СБРОС CASCADE" data-confirm-title="Удалить служебный доступ Outbound?" data-confirm-subtitle="Это второй шаг очистки двух самостоятельных серверов." data-confirm-message="Этот сервер перестанет выпускать трафик прежнего Inbound-сервера. Убедитесь, что на Inbound уже восстановлен прямой выход." data-confirm-action="Удалить доступ Outbound" data-confirm-tone="danger">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button danger" type="submit">Удалить служебный доступ Outbound</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel-card cascade-clients-explainer">
+  <div><span class="section-kicker">ГДЕ СОЗДАЮТСЯ КЛИЕНТЫ</span><h2>Клиенты остаются в разделе Clients</h2><p>Создайте клиента на сервере подключения (Inbound). Cascade автоматически направит его трафик через выбранный сервер выхода (Outbound).</p></div>
+  <a class="button primary" href="{{ url_for('clients_page', open='add') }}">Добавить клиента</a>
+</section>
+
+<script>
+(() => {
+  const flagUrl = (code) => `{{ url_for('static', filename='flags/unknown.svg') }}`.replace('unknown.svg', code ? `${code.toLowerCase()}.svg` : 'unknown.svg');
+
+  for (const select of document.querySelectorAll('[data-flag-select]')) {
+    const shell = select.closest('.flag-select-shell');
+    const preview = shell?.querySelector('.flag-select-preview');
+    const refreshFlag = () => {
+      const option = select.options[select.selectedIndex];
+      const code = option?.dataset.country || '';
+      if (preview) {
+        preview.src = flagUrl(code);
+        preview.alt = code;
+        preview.title = code || 'Страна не выбрана';
+      }
+    };
+    select.addEventListener('change', refreshFlag);
+    refreshFlag();
+  }
+
+  const entry = document.getElementById('cascade-entry-server');
+  const exit = document.getElementById('cascade-exit-server');
+  const preview = document.getElementById('cascade-confirm-preview');
+  const entryText = document.getElementById('cascade-preview-entry');
+  const exitText = document.getElementById('cascade-preview-exit');
+  const refreshPreview = () => {
+    if (!entry || !exit) return;
+    for (const option of exit.options) option.disabled = option.dataset.ready === '0' || (!!entry.value && option.value === entry.value);
+    if (entry.value && exit.value && entry.value === exit.value) exit.value = '';
+    const ready = !!entry.value && !!exit.value;
+    if (preview) preview.hidden = !ready;
+    if (ready) {
+      entryText.textContent = entry.options[entry.selectedIndex]?.dataset.label || entry.options[entry.selectedIndex]?.textContent || '—';
+      exitText.textContent = exit.options[exit.selectedIndex]?.dataset.label || exit.options[exit.selectedIndex]?.textContent || '—';
+    }
+  };
+  entry?.addEventListener('change', refreshPreview);
+  exit?.addEventListener('change', refreshPreview);
+  refreshPreview();
+
+  for (const button of document.querySelectorAll('[data-copy-target]')) {
+    button.addEventListener('click', async () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+      const value = target.value || target.textContent || '';
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = 'Скопировано';
+      } catch (_) {
+        target.focus(); target.select(); document.execCommand('copy');
+        button.textContent = 'Скопировано';
+      }
+      setTimeout(() => { button.textContent = 'Копировать ссылку'; }, 1600);
+    });
+  }
+
+  {% if cascade_links|selectattr('state', 'in', ['preparing_exit','preparing_entry','disabling_entry','disabling_exit'])|list %}
+  setTimeout(() => window.location.reload(), 8000);
+  {% endif %}
+})();
+</script>
+{% endblock %}

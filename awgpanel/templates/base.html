@@ -27,8 +27,14 @@
       <a href="{{ url_for('system_page') }}" class="{{ 'active' if request.endpoint in ('system_page', 'diagnostics', 'system_resources_json') else '' }}">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4M7 8h3M7 12h6"/></svg><span><b>System</b><small>Ресурсы и состояние</small></span>
       </a>
+      <a href="{{ url_for('nodes_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('node_') or request.endpoint == 'nodes_page') else '' }}">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="8.5" y="14" width="7" height="7" rx="2"/><path d="M6.5 10v2h11v-2M12 12v2"/></svg><span><b>Cluster</b><small>SG-Node · {{ cluster_summary.online|default(0) }}/{{ cluster_summary.total|default(0) }} в сети</small></span>
+      </a>
+      <a href="{{ url_for('cascade_page') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('cascade') else '' }}">
+        <svg viewBox="0 0 24 24"><path d="M4 6h7a4 4 0 0 1 4 4v8"/><path d="m11 3 3 3-3 3M20 18h-7a4 4 0 0 1-4-4V6"/><path d="m13 21-3-3 3-3"/></svg><span><b>Cascade</b><small>Подключение и выход в интернет</small></span>
+      </a>
       <a href="{{ url_for('clients_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('client_') or request.endpoint == 'clients_page') else '' }}">
-        <svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 20v-2a4 4 0 0 0-3-3.87"/></svg><span><b>Clients</b><small>Клиенты и подключения</small></span>
+        <svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 20v-2a4 4 0 0 0-3-3.87"/></svg><span><b>Clients</b><small>Клиенты и подписки</small></span>
       </a>
       <a href="{{ url_for('server_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('server_') or request.endpoint.startswith('config') or request.endpoint == 'generated_config_download') else '' }}">
         <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg><span><b>AWG Server</b><small>Сервер и конфигурация</small></span>
@@ -42,9 +48,17 @@
       <a href="{{ url_for('maintenance_page') }}" class="{{ 'active' if request.endpoint and (request.endpoint == 'maintenance_page' or request.endpoint.startswith('backup') or request.endpoint.startswith('updates') or request.endpoint.startswith('settings_update')) else '' }}">
         <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/><ellipse cx="9" cy="7" rx="4" ry="1.6"/><path d="M5 7v4c0 .9 1.8 1.6 4 1.6"/></svg><span><b>Maintenance</b><small>Копии и обновления</small></span>
       </a>
+      <a href="{{ url_for('help_page') }}" class="{{ 'active' if request.endpoint == 'help_page' else '' }}">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.5 2.5 0 1 1 3.7 2.2c-1 .5-1.5 1.1-1.5 2.3M12 17h.01"/></svg><span><b>Help</b><small>Пошаговая справка</small></span>
+      </a>
     </nav>
 
     <div class="sidebar-spacer"></div>
+    <div class="sidebar-server-card" title="{{ layout_identity_label }}">
+      <div class="sidebar-server-state"><i></i><strong>СОБСТВЕННЫЙ СЕРВЕР</strong></div>
+      <div class="sidebar-server-meta"><span>{{ country_flag_icon(layout_country_code, layout_country_code|country_name, "server-country-flag") }}{{ layout_instance_name }}</span><b>v{{ panel_version }}</b></div>
+      <small>UI {{ layout_ui_build }}</small>
+    </div>
     <button class="sidebar-collapse" id="sidebar-collapse" type="button" aria-label="Свернуть меню">← <span>Свернуть меню</span></button>
     <form method="post" action="{{ url_for('logout') }}" class="logout-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -56,6 +70,15 @@
     <header class="global-topbar">
       <button class="mobile-menu-button" id="mobile-menu" type="button" aria-label="Открыть меню">☰</button>
       <div class="global-topbar-spacer"></div>
+      <details class="server-identity-menu">
+        <summary class="server-identity-chip" title="Имя сервера, страна и публичный адрес"><span class="server-identity-chip-copy"><small>ТЕКУЩИЙ СЕРВЕР</small><strong>{{ country_flag_icon(layout_country_code, layout_country_code|country_name, "server-country-flag") }} {{ layout_instance_name }}</strong><em>{{ layout_server_address }}</em></span><span class="server-identity-chevron" aria-hidden="true">▾</span></summary>
+        <div class="server-identity-popover">
+          <button type="button" data-open-server-rename><b>Переименовать сервер</b><small>Изменить имя во всей панели</small></button>
+          <button type="button" data-copy-server-ip="{{ layout_server_address }}"><b>Скопировать IP</b><small>{{ layout_server_address }}</small></button>
+          <a href="{{ url_for('system_page', tab='status-services') }}"><b>Открыть настройки сервера</b><small>System → Идентификация</small></a>
+        </div>
+      </details>
+      <span class="topbar-version">v{{ panel_version }}</span>
       {% set gs = global_system_status|default({'class':'success','label':'СИСТЕМА В НОРМЕ','href':url_for('system_page', tab='logs-diagnostics')}) %}
       <a class="system-pill {{ gs.class }}" href="{{ gs.href }}" title="Открыть System → Logs & Diagnostics"><span class="system-pill-dot"></span><strong>{{ gs.label }}</strong></a>
       <span class="account-chip">admin</span>
@@ -72,10 +95,39 @@
       {% endwith %}
 
       <div class="page-stack">{% block content %}{% endblock %}</div>
-      <footer class="app-footer"><span>© 2026 SG-AWG-Panel</span><span>v{{ panel_version }} · SQLite · AmneziaWG 2.0</span></footer>
+      <footer class="app-footer"><span>© 2026 SG-AWG-Panel · Ser.Gor</span><span>{{ country_flag_icon(layout_country_code, layout_country_code|country_name, "footer-country-flag") }} {{ layout_identity_label }} · v{{ panel_version }} · UI {{ layout_ui_build }}</span></footer>
     </main>
   </div>
 </div>
+<dialog id="server-rename-dialog" class="beta9-dialog beta9-dialog-compact" aria-labelledby="server-rename-title">
+  <div class="beta9-dialog-header"><div><p class="eyebrow">ИМЯ СЕРВЕРА</p><h2 id="server-rename-title">Переименовать сервер</h2><p>Новое имя сразу появится в шапке, Cluster, Clients и Cascade.</p></div><button class="beta9-dialog-close" type="button" onclick="this.closest('dialog').close()" aria-label="Закрыть">×</button></div>
+  <div class="beta9-dialog-body">
+    <form class="ui-form" method="post" action="{{ url_for('system_identity_update') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="return_to" value="{{ request.full_path if request.query_string else request.path }}">
+      <label><span>Новое имя сервера</span><input name="instance_name" maxlength="64" required value="{{ layout_instance_name }}" placeholder="Например: Frankfurt Entry"></label>
+      <div class="dialog-action-row"><button class="button" type="button" onclick="this.closest('dialog').close()">Отмена</button><button class="button primary" type="submit">Переименовать сервер</button></div>
+    </form>
+  </div>
+</dialog>
+<dialog id="ui-action-dialog" class="beta9-dialog beta9-dialog-compact ui-action-dialog" aria-labelledby="ui-action-title">
+  <div class="beta9-dialog-header">
+    <div><p class="eyebrow" id="ui-action-kicker">ПОДТВЕРЖДЕНИЕ</p><h2 id="ui-action-title">Подтвердите действие</h2><p id="ui-action-subtitle">Проверьте действие перед продолжением.</p></div>
+    <button class="beta9-dialog-close" type="button" data-ui-dialog-cancel aria-label="Закрыть">×</button>
+  </div>
+  <div class="beta9-dialog-body">
+    <p class="ui-action-message" id="ui-action-message"></p>
+    <div class="ui-copy-box" id="ui-copy-box" hidden>
+      <label for="ui-copy-field">Значение для копирования</label>
+      <div><input id="ui-copy-field" type="text" readonly><button class="button secondary" type="button" id="ui-copy-button">Копировать</button></div>
+      <small>Поле можно выделить вручную и скопировать сочетанием Ctrl+C.</small>
+    </div>
+    <div class="dialog-action-row">
+      <button class="button" type="button" data-ui-dialog-cancel id="ui-action-cancel">Отмена</button>
+      <button class="button primary" type="button" id="ui-action-confirm">Продолжить</button>
+    </div>
+  </div>
+</dialog>
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 <script>
 (() => {
@@ -84,6 +136,91 @@
   const collapse = document.getElementById('sidebar-collapse');
   const mobile = document.getElementById('mobile-menu');
   const overlay = document.getElementById('sidebar-overlay');
+  const actionDialog = document.getElementById('ui-action-dialog');
+  const actionKicker = document.getElementById('ui-action-kicker');
+  const actionTitle = document.getElementById('ui-action-title');
+  const actionSubtitle = document.getElementById('ui-action-subtitle');
+  const actionMessage = document.getElementById('ui-action-message');
+  const actionConfirm = document.getElementById('ui-action-confirm');
+  const actionCancel = document.getElementById('ui-action-cancel');
+  const copyBox = document.getElementById('ui-copy-box');
+  const copyField = document.getElementById('ui-copy-field');
+  const copyButton = document.getElementById('ui-copy-button');
+  let actionResolver = null;
+
+  const finishAction = (accepted) => {
+    if (actionDialog?.open) actionDialog.close();
+    const resolve = actionResolver;
+    actionResolver = null;
+    resolve?.(accepted);
+  };
+  const configureAction = ({kicker='ПОДТВЕРЖДЕНИЕ', title='Подтвердите действие', subtitle='Проверьте действие перед продолжением.', message='', confirmText='Продолжить', cancelText='Отмена', tone='primary', copyValue=null}) => {
+    actionKicker.textContent = kicker;
+    actionTitle.textContent = title;
+    actionSubtitle.textContent = subtitle;
+    actionMessage.textContent = message;
+    actionConfirm.textContent = confirmText;
+    actionCancel.textContent = cancelText;
+    actionConfirm.className = `button ${tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'primary'}`;
+    actionCancel.hidden = cancelText === '';
+    copyBox.hidden = copyValue === null;
+    if (copyValue !== null) copyField.value = String(copyValue);
+  };
+  window.sgDialog = {
+    ask(options={}) {
+      if (!actionDialog) return Promise.resolve(false);
+      if (actionResolver) finishAction(false);
+      configureAction(options);
+      actionDialog.showModal();
+      setTimeout(() => actionConfirm.focus(), 20);
+      return new Promise((resolve) => { actionResolver = resolve; });
+    },
+    notice(options={}) {
+      return this.ask({...options, kicker: options.kicker || 'СООБЩЕНИЕ', confirmText: options.confirmText || 'Понятно', cancelText: ''});
+    },
+    copy(value, options={}) {
+      return this.ask({...options, kicker: options.kicker || 'КОПИРОВАНИЕ', title: options.title || 'Скопируйте значение', confirmText: options.confirmText || 'Готово', cancelText: '', copyValue: value});
+    }
+  };
+  actionConfirm?.addEventListener('click', () => finishAction(true));
+  document.querySelectorAll('[data-ui-dialog-cancel]').forEach((button) => button.addEventListener('click', () => finishAction(false)));
+  actionDialog?.addEventListener('cancel', (event) => { event.preventDefault(); finishAction(false); });
+  actionDialog?.addEventListener('click', (event) => { if (event.target === actionDialog) finishAction(false); });
+  copyButton?.addEventListener('click', async () => {
+    const value = copyField?.value || '';
+    try {
+      await navigator.clipboard.writeText(value);
+      copyButton.textContent = 'Скопировано';
+    } catch (_) {
+      copyField?.focus(); copyField?.select();
+      document.execCommand('copy');
+      copyButton.textContent = 'Скопировано';
+    }
+    setTimeout(() => { copyButton.textContent = 'Копировать'; }, 1500);
+  });
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest('form');
+    if (!form || form.dataset.uiConfirmed === '1') return;
+    const submitter = event.submitter;
+    const source = submitter?.dataset.confirmMessage ? submitter : (form.dataset.confirmMessage ? form : null);
+    if (!source) return;
+    event.preventDefault();
+    window.sgDialog.ask({
+      kicker: source.dataset.confirmKicker || 'ПОДТВЕРЖДЕНИЕ',
+      title: source.dataset.confirmTitle || 'Подтвердите действие',
+      subtitle: source.dataset.confirmSubtitle || 'Изменения будут применены сразу.',
+      message: source.dataset.confirmMessage || '',
+      confirmText: source.dataset.confirmAction || 'Продолжить',
+      tone: source.dataset.confirmTone || 'warning'
+    }).then((accepted) => {
+      if (!accepted) return;
+      form.dataset.uiConfirmed = '1';
+      try { form.requestSubmit(submitter || undefined); }
+      finally { window.setTimeout(() => { delete form.dataset.uiConfirmed; }, 0); }
+    });
+  });
+
   if (localStorage.getItem('sg-awg-sidebar') === 'collapsed') body.classList.add('sidebar-collapsed');
   collapse?.addEventListener('click', () => {
     body.classList.toggle('sidebar-collapsed');
@@ -93,6 +230,23 @@
   mobile?.addEventListener('click', () => { sidebar?.classList.toggle('mobile-open'); overlay?.classList.toggle('show'); });
   overlay?.addEventListener('click', closeMobile);
   document.querySelectorAll('.main-nav a').forEach(a => a.addEventListener('click', closeMobile));
+  const renameDialog = document.getElementById('server-rename-dialog');
+  document.querySelectorAll('[data-open-server-rename]').forEach((button) => button.addEventListener('click', () => {
+    button.closest('details')?.removeAttribute('open');
+    renameDialog?.showModal();
+    setTimeout(() => renameDialog?.querySelector('input[name="instance_name"]')?.select(), 30);
+  }));
+  document.querySelectorAll('[data-copy-server-ip]').forEach((button) => button.addEventListener('click', async () => {
+    const value = button.dataset.copyServerIp || '';
+    try {
+      await navigator.clipboard.writeText(value);
+      button.querySelector('b').textContent = 'IP скопирован';
+    } catch (_) {
+      window.sgDialog.copy(value, {title: 'Скопируйте IP сервера', message: 'Браузер не разрешил автоматическое копирование.'});
+    }
+    setTimeout(() => { const label=button.querySelector('b'); if (label) label.textContent='Скопировать IP'; }, 1600);
+  }));
+  renameDialog?.addEventListener('click', (event) => { if (event.target === renameDialog) renameDialog.close(); });
 })();
 </script>
 </body>

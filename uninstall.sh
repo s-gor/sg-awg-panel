@@ -154,6 +154,7 @@ cat <<'WARNING'
 
 Будут безвозвратно удалены:
   - SG-AWG-Panel, база, пользователи, ключи и резервные копии;
+  - подключение SG-Node, Agent, токены, состояние и служебные ключи;
   - службы sg-awg-* и конфигурация AWG;
   - AmneziaWG, DKMS-модуль и PPA Amnezia;
   - Nginx, Certbot и все их конфигурации/сертификаты на этом EC2;
@@ -181,12 +182,27 @@ cd /
 
 stage 1 4 "Остановка компонентов"
 step_begin "Остановка служб и таймеров"
-if command -v awg-quick >/dev/null 2>&1 \
-  && [[ -f /etc/amnezia/amneziawg/awg0.conf ]]; then
-  awg-quick down /etc/amnezia/amneziawg/awg0.conf >>"$LOG_FILE" 2>&1 || true
+if command -v awg-quick >/dev/null 2>&1; then
+  if [[ -f /etc/amnezia/amneziawg/sgcascade.conf ]]; then
+    awg-quick down /etc/amnezia/amneziawg/sgcascade.conf >>"$LOG_FILE" 2>&1 || true
+  fi
+  if [[ -f /etc/amnezia/amneziawg/awg0.conf ]]; then
+    awg-quick down /etc/amnezia/amneziawg/awg0.conf >>"$LOG_FILE" 2>&1 || true
+  fi
 fi
 
 for unit in \
+  sg-awg-node-agent.service \
+  sg-awg-panel-update.service \
+  sg-awg-legacy-upgrade-cleanup.timer \
+  sg-awg-legacy-upgrade-cleanup.service \
+  sg-awg-routing-lists.timer \
+  sg-awg-routing-lists.service \
+  sg-awg-routing-schedule.timer \
+  sg-awg-routing-schedule.service \
+  sg-awg-routing.service \
+  sg-awg-traffic-lists.timer \
+  sg-awg-traffic-lists.service \
   sg-awg-recovery.service \
   sg-awg-traffic-schedule.timer \
   sg-awg-clients-maintenance.timer \
@@ -208,16 +224,27 @@ systemctl disable --now nginx.service >>"$LOG_FILE" 2>&1 || true
 # Terminate only a leftover process started from this project's virtualenv.
 pkill -TERM -f '^/opt/sg-awg-panel/.venv/bin/(waitress-serve|python)' \
   >>"$LOG_FILE" 2>&1 || true
+pkill -TERM -f '^/usr/bin/python3 /opt/sg-awg-node/agent.py$' \
+  >>"$LOG_FILE" 2>&1 || true
 sleep 1
 pkill -KILL -f '^/opt/sg-awg-panel/.venv/bin/(waitress-serve|python)' \
+  >>"$LOG_FILE" 2>&1 || true
+pkill -KILL -f '^/usr/bin/python3 /opt/sg-awg-node/agent.py$' \
   >>"$LOG_FILE" 2>&1 || true
 
 step_ok
 step_begin "Отключение AWG-интерфейсов и Traffic Rules"
 # Remove an interface even if the service/config shutdown was incomplete.
+ip link delete sgcascade >>"$LOG_FILE" 2>&1 || true
 ip link delete awg0 >>"$LOG_FILE" 2>&1 || true
 nft delete table inet sg_awg_traffic >>"$LOG_FILE" 2>&1 || true
 nft delete table ip sg_awg_traffic_nat >>"$LOG_FILE" 2>&1 || true
+nft delete table inet sg_awg_node_filter >>"$LOG_FILE" 2>&1 || true
+nft delete table ip sg_awg_node_nat >>"$LOG_FILE" 2>&1 || true
+nft delete table inet sg_awg_node_cascade >>"$LOG_FILE" 2>&1 || true
+nft delete table ip sg_awg_node_cascade_nat >>"$LOG_FILE" 2>&1 || true
+while ip rule del priority 13050 >>"$LOG_FILE" 2>&1; do :; done
+ip route flush table 23000 >>"$LOG_FILE" 2>&1 || true
 for id in $(seq 1 32); do
   while ip rule del priority "$((12100 + id))" >>"$LOG_FILE" 2>&1; do :; done
   ip route flush table "$((21000 + id))" >>"$LOG_FILE" 2>&1 || true
@@ -229,6 +256,7 @@ step_ok
 stage 2 4 "Удаление системной интеграции"
 step_begin "Удаление systemd-служб и таймеров"
 rm -f \
+  /etc/systemd/system/sg-awg-node-agent.service \
   /etc/systemd/system/sg-awg-panel.service \
   /etc/systemd/system/sg-awg-server.service \
   /etc/systemd/system/sg-awg-backup.service \
@@ -238,10 +266,24 @@ rm -f \
   /etc/systemd/system/sg-awg-traffic-schedule.service \
   /etc/systemd/system/sg-awg-traffic-schedule.timer \
   /etc/systemd/system/sg-awg-clients-maintenance.service \
-  /etc/systemd/system/sg-awg-clients-maintenance.timer
+  /etc/systemd/system/sg-awg-clients-maintenance.timer \
+  /etc/systemd/system/sg-awg-panel-update.service \
+  /etc/systemd/system/sg-awg-legacy-upgrade-cleanup.service \
+  /etc/systemd/system/sg-awg-legacy-upgrade-cleanup.timer \
+  /etc/systemd/system/sg-awg-routing.service \
+  /etc/systemd/system/sg-awg-routing-schedule.service \
+  /etc/systemd/system/sg-awg-routing-schedule.timer \
+  /etc/systemd/system/sg-awg-routing-lists.service \
+  /etc/systemd/system/sg-awg-routing-lists.timer \
+  /etc/systemd/system/sg-awg-traffic-lists.service \
+  /etc/systemd/system/sg-awg-traffic-lists.timer
+
+# Remove any other SG-AWG unit files left by older releases.
+rm -f /etc/systemd/system/sg-awg-*.service /etc/systemd/system/sg-awg-*.timer
 
 find /etc/systemd/system -type l \
-  \( -name 'sg-awg-panel.service' \
+  \( -name 'sg-awg-node-agent.service' \
+     -o -name 'sg-awg-panel.service' \
      -o -name 'sg-awg-server.service' \
      -o -name 'sg-awg-backup.service' \
      -o -name 'sg-awg-backup.timer' \
@@ -255,6 +297,11 @@ find /etc/systemd/system -type l \
      -o -name 'sg-awg-clients-maintenance.timer' \) \
   -delete 2>/dev/null || true
 
+find /etc/systemd/system -type l -name 'sg-awg-*' -delete 2>/dev/null || true
+rm -rf \
+  /etc/systemd/system/sg-awg-*.service.d \
+  /etc/systemd/system/sg-awg-*.timer.d
+
 systemctl daemon-reload >>"$LOG_FILE" 2>&1
 systemctl reset-failed >>"$LOG_FILE" 2>&1 || true
 step_ok
@@ -264,13 +311,21 @@ rm -rf \
   /opt/sg-awg-panel \
   /etc/sg-awg-panel \
   /var/lib/sg-awg-panel \
+  /opt/sg-awg-node \
+  /etc/sg-awg-node \
+  /var/lib/sg-awg-node \
+  /usr/local/lib/sg-awg-panel \
   /root/sg-awg-panel-backups \
   /etc/amnezia/amneziawg \
   /var/www/sg-awg-panel-acme \
   /var/www/sg-awg-acme \
   /var/www/sg-awg-placeholder \
   /var/www/sg-awg-update \
-  /tmp/sg-awg-access.*
+  /tmp/sg-awg-access.* \
+  /tmp/sg-awg-node.* \
+  /tmp/sg-awg-node-enroll.* \
+  /tmp/sg-awg-panel-install.* \
+  /tmp/sg-awg-selfextract.*
 
 rm -f \
   /var/log/sg-awg-panel-install.log \
@@ -416,7 +471,12 @@ for path in \
   /opt/sg-awg-panel \
   /etc/sg-awg-panel \
   /var/lib/sg-awg-panel \
+  /opt/sg-awg-node \
+  /etc/sg-awg-node \
+  /var/lib/sg-awg-node \
+  /usr/local/lib/sg-awg-panel \
   /etc/amnezia/amneziawg \
+  /etc/systemd/system/sg-awg-node-agent.service \
   /etc/systemd/system/sg-awg-panel.service \
   /etc/systemd/system/sg-awg-server.service \
   /etc/systemd/system/sg-awg-backup.timer \
@@ -429,6 +489,27 @@ for path in \
     problems=1
   fi
 done
+
+if ip link show sgcascade >/dev/null 2>&1; then
+  printf 'ОСТАЛОСЬ: интерфейс sgcascade\n' | tee -a "$LOG_FILE" >&2
+  problems=1
+fi
+
+if command -v nft >/dev/null 2>&1; then
+  node_nft="$(nft list ruleset 2>/dev/null || true)"
+  if grep -Eq 'table (inet|ip) sg_awg_node_(filter|nat|cascade|cascade_nat)' <<<"$node_nft"; then
+    printf 'ОСТАЛОСЬ: nftables-таблицы SG-Node\n' | tee -a "$LOG_FILE" >&2
+    problems=1
+  fi
+fi
+if ip rule show 2>/dev/null | grep -Eq '(^|[[:space:]])13050:'; then
+  printf 'ОСТАЛОСЬ: policy rule SG-Node priority 13050\n' | tee -a "$LOG_FILE" >&2
+  problems=1
+fi
+if ip route show table 23000 2>/dev/null | grep -q .; then
+  printf 'ОСТАЛОСЬ: таблица маршрутизации SG-Node 23000\n' | tee -a "$LOG_FILE" >&2
+  problems=1
+fi
 
 if lsmod | awk '{print $1}' | grep -qx amneziawg; then
   printf 'ОСТАЛОСЬ: загружен модуль amneziawg\n' | tee -a "$LOG_FILE" >&2
@@ -469,7 +550,8 @@ step_ok
 cat <<EOF_DONE
 
 [SG-AWG-Panel] [OK] Полное удаление завершено.
-[SG-AWG-Panel] [OK] SG-AWG-Panel, AmneziaWG, Nginx и Certbot удалены.
+[SG-AWG-Panel] [OK] SG-AWG-Panel и следы подключения SG-Node удалены.
+[SG-AWG-Panel] [OK] Agent, токены, состояние, AmneziaWG, Nginx и Certbot удалены.
 [SG-AWG-Panel] [OK] Backend TCP 18080 свободен.
 [SG-AWG-Panel] Журнал сохранён: $LOG_FILE
 

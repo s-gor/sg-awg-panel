@@ -663,7 +663,7 @@ def validate_rule_values(values: dict[str, object], *, rule_id: int | None = Non
     if client_ids:
         ids = [int(item) for item in client_ids.split(",")]
         with connect() as con:
-            known = {int(row[0]) for row in con.execute("SELECT id FROM awg_clients WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)}
+            known = {int(row[0]) for row in con.execute("SELECT id FROM awg_clients WHERE node_id IS NULL AND id IN (%s)" % ",".join("?" * len(ids)), ids)}
         missing = set(ids) - known
         if missing:
             raise ValueError("Неизвестные клиенты: " + ", ".join(map(str, sorted(missing))))
@@ -837,7 +837,7 @@ def compile_rule_values(
 ) -> list[CompiledRule]:
     init_db()
     with connect() as con:
-        clients = {int(row["id"]): str(row["address"]) for row in con.execute(f"SELECT id, address FROM awg_clients WHERE {ACTIVE_CLIENT_SQL}")}
+        clients = {int(row["id"]): str(row["address"]) for row in con.execute(f"SELECT id, address FROM awg_clients WHERE node_id IS NULL AND {ACTIVE_CLIENT_SQL}")}
         lists = {int(row["id"]): row for row in con.execute("SELECT * FROM traffic_lists WHERE enabled=1")}
     output: list[CompiledRule] = []
     for index, original in enumerate(rules, start=1):
@@ -994,7 +994,9 @@ def render_rule_nft(
                 f"    {base}{destination}{proto}{ports} {action} comment \"{comment}\""
             )
 
-    guards.append(f"    meta mark 0x{block_mark:x} drop")
+    guards.append(
+        f'    iifname "{inbound_interface}" meta mark 0x{block_mark:x} drop'
+    )
     seen_outbounds: set[int] = set()
     for rule in rules:
         if (
@@ -1005,7 +1007,10 @@ def render_rule_nft(
             seen_outbounds.add(rule.outbound_id)
             mark = fwmark_for(rule.outbound_id)
             interface = interface_name_for(rule.outbound_id)
-            guards.append(f'    meta mark 0x{mark:x} oifname != "{interface}" drop')
+            guards.append(
+                f'    iifname "{inbound_interface}" meta mark 0x{mark:x} '
+                f'oifname != "{interface}" drop'
+            )
     return declarations, classification, guards, domain_map
 
 
@@ -1189,7 +1194,7 @@ def diagnose_route(
     client_address = ""
     if client_id:
         with connect() as con:
-            row = con.execute("SELECT address FROM awg_clients WHERE id=?", (int(client_id),)).fetchone()
+            row = con.execute("SELECT address FROM awg_clients WHERE id=? AND node_id IS NULL", (int(client_id),)).fetchone()
         if row is None:
             raise ValueError("Клиент не найден")
         client_address = str(row["address"])

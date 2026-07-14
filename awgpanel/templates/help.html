@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Help · SG-AWG-Panel{% endblock %}
+{% block section %}HELP{% endblock %}
+{% block heading %}Справка SG-AWG-Panel{% endblock %}
+{% block subtitle %}Пошаговые инструкции по установке, клиентам, Network, Cascade, Cluster и обслуживанию{% endblock %}
+{% block body_class %}ui-standard-page help-page{% endblock %}
+{% block content %}
+<section class="help-search-card panel-card">
+  <div><span class="section-kicker">ВСТРОЕННАЯ ДОКУМЕНТАЦИЯ</span><h2>Найдите нужное действие</h2><p>Справка описывает то, что реально делает панель. Без обещаний функций, которых нет в runtime.</p></div>
+  <label class="help-search"><span>⌕</span><input id="help-search-input" type="search" placeholder="Например: подключить SG-Node, заменить Exit, HTTPS, восстановить копию"></label>
+</section>
+
+<div class="help-layout">
+  <aside class="help-index panel-card">
+    <b>Содержание</b>
+    <a href="#start">Начало работы</a>
+    <a href="#system">System</a>
+    <a href="#clients">Clients</a>
+    <a href="#server">AWG Server</a>
+    <a href="#network">Network</a>
+    <a href="#cascade">Cascade</a>
+    <a href="#cluster">Cluster и SG-Node</a>
+    <a href="#security">Security</a>
+    <a href="#maintenance">Maintenance</a>
+    <a href="#diagnostics">Диагностика</a>
+    <a href="#faq">Частые вопросы</a>
+  </aside>
+
+  <div class="help-content" id="help-content">
+    <section class="panel-card help-section" id="start" data-help="установка начало первый запуск ubuntu пароль порт адрес">
+      <span class="section-kicker">01 · НАЧАЛО РАБОТЫ</span><h2>Установка и первый вход</h2>
+      <ol class="help-steps">
+        <li><span>1</span><div><b>Используйте чистую Ubuntu Server 24.04 LTS</b><p>Панель устанавливает AmneziaWG, Nginx, Python runtime, SQLite и собственные systemd-службы.</p></div></li>
+        <li><span>2</span><div><b>Запустите <code>sudo bash install.sh</code></b><p>Все вопросы мастер задаёт до применения основной конфигурации. Технический вывод сохраняется в журнал.</p></div></li>
+        <li><span>3</span><div><b>Откройте адрес, показанный установщиком</b><p>Войдите с паролем администратора. Первой открывается System → Resources.</p></div></li>
+        <li><span>4</span><div><b>Проверьте AWG Server и создайте клиента</b><p>После настройки сервера клиентская конфигурация доступна в Clients.</p></div></li>
+      </ol>
+      <div class="help-callout warning"><b>Перед установкой</b><p>Не устанавливайте панель поверх сервера с неизвестными правилами nftables, чужим WireGuard/AWG runtime или важным Nginx-сайтом без резервной копии.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="system" data-help="system ресурсы память cpu диск журналы службы диагностика">
+      <span class="section-kicker">02 · SYSTEM</span><h2>Ресурсы, службы и журналы</h2>
+      <h3>Resources</h3><p>Показывает CPU, память, диск и load average. Состояние памяти оценивается по доступной памяти, а файловый кэш не считается безвозвратной потерей RAM.</p>
+      <h3>Logs & Diagnostics</h3><p>Проверяет службы панели, AmneziaWG, Traffic Rules и Nginx. Здесь же скачивается безопасный диагностический отчёт без приватных ключей.</p>
+      <div class="help-callout"><b>Что проверять после перезагрузки</b><p>Статус панели, наличие интерфейса AWG, UDP-порт сервера, IP forwarding, nftables и доступность backend только на loopback.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="clients" data-help="clients клиент создать ссылка скачать qr срок отключить удалить доступ">
+      <span class="section-kicker">03 · CLIENTS</span><h2>Создание и управление клиентами</h2>
+      <ol class="help-steps compact">
+        <li><span>1</span><div><b>Нажмите «Добавить клиента»</b><p>Укажите имя, комментарий и при необходимости срок действия.</p></div></li>
+        <li><span>2</span><div><b>Скачайте .conf или используйте персональную ссылку</b><p>Ссылка всегда отдаёт актуальную конфигурацию и может быть отдельно отключена или перевыпущена.</p></div></li>
+        <li><span>3</span><div><b>Выберите выход</b><p>По умолчанию клиент использует SG-AWG Gateway. Дополнительно доступны Block, отдельный Outbound или Cascade.</p></div></li>
+      </ol>
+      <h3>Удаление и перевыпуск</h3><p>«Перевыпустить» меняет ключи клиента и делает старую конфигурацию недействительной. «Удалить» полностью убирает peer из серверной конфигурации.</p>
+    </section>
+
+    <section class="panel-card help-section" id="server" data-help="awg server amneziawg endpoint port mtu masking jc jmin jmax h1 key server">
+      <span class="section-kicker">04 · AWG SERVER</span><h2>Сервер AmneziaWG</h2>
+      <p>Раздел хранит параметры интерфейса <code>awg0</code>, публичный endpoint, UDP-порт, серверную сеть, MTU и параметры маскировки AmneziaWG.</p>
+      <h3>Что можно менять безопасно</h3><p>Публичный адрес, порт, MTU и профиль маскировки меняются через форму с проверкой. Панель создаёт резервную копию и применяет конфигурацию через управляемую службу.</p>
+      <h3>Что произойдёт с клиентами</h3><p>Изменение endpoint или порта требует скачать обновлённые клиентские конфигурации. Изменение приватного ключа сервера делает старые клиентские профили недействительными.</p>
+      <div class="help-callout warning"><b>Не копируйте параметры наугад</b><p>Jc/Jmin/Jmax/S1–S4/H1–H4 должны оставаться согласованными на сервере и клиентах. Используйте профиль панели или экспертный JSON с обязательной проверкой.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="network" data-help="network traffic rules outbounds dns direct block route json правила маршрутизация">
+      <span class="section-kicker">05 · NETWORK</span><h2>Traffic Rules и Outbounds</h2>
+      <h3>Traffic Rules</h3><p>Правило выбирает клиентов, домены/IP, протокол и порты, затем направляет совпадение в Block или конкретный Outbound. Обычный SG-AWG Gateway является маршрутом по умолчанию и не требует отдельного правила.</p>
+      <h3>Outbounds</h3><p>Outbound — отдельная клиентская конфигурация AmneziaWG, через которую сервер выпускает выбранный трафик. Перед сохранением панель проверяет синтаксис, endpoint, адрес и full-tunnel AllowedIPs.</p>
+      <h3>DNS</h3><p>Доменная маршрутизация работает через управляемый DNS-path. Отключение DNS-контроля может сделать доменные правила неэффективными.</p>
+      <h3>JSON</h3><p>Current JSON — основной экспертный инструмент. «Проверить» не применяет изменения; «Сохранить и применить» доступно только для текста, прошедшего актуальную проверку.</p>
+    </section>
+
+    <section class="panel-card help-section" id="cascade" data-help="cascade каскад inbound outbound сервер подключения сервер выхода интернет cluster другой сервер ссылка прямой выход">
+      <span class="section-kicker">06 · CASCADE</span><h2>Клиент → Сервер подключения (Inbound) → Сервер выхода (Outbound) → Интернет</h2>
+      <p><b>Сервер подключения (Inbound)</b> — сервер, к которому подключается VPN-клиент. <b>Сервер выхода в интернет (Outbound)</b> — сервер, публичный IP которого видят сайты. В этом разделе Inbound и Outbound обозначают роли серверов в каскаде, а не отдельные пользовательские профили.</p>
+      <h3>Вариант 1 — сервер из Cluster</h3>
+      <ol class="help-steps">
+        <li><span>1</span><div><b>Подключите SG-Node</b><p>В Cluster должны быть два готовых сервера: Controller и SG-Node либо две SG-Node.</p></div></li>
+        <li><span>2</span><div><b>Выберите Inbound</b><p>Это сервер, уже указанный в обычной конфигурации клиента.</p></div></li>
+        <li><span>3</span><div><b>Выберите Outbound</b><p>Его публичный IP будут видеть сайты и сервисы.</p></div></li>
+        <li><span>4</span><div><b>Нажмите «Включить Cascade»</b><p>Controller сам создаст служебный peer и применит серверный маршрут через Agent.</p></div></li>
+        <li><span>5</span><div><b>Проверьте сервер и клиента</b><p>Сначала подтвердите серверный маршрут. Затем откройте на VPN-клиенте любой сайт и выполните проверку подключения. Переподключать VPN не требуется.</p></div></li>
+      </ol>
+      <h3>Вариант 2 — другой самостоятельный сервер</h3>
+      <ol class="help-steps">
+        <li><span>1</span><div><b>На сервере выхода (Outbound)</b><p>Откройте Cascade → «Другой сервер» и нажмите «Создать ссылку для Cascade». Ссылка действует 30 минут; новая ссылка заменяет предыдущий служебный доступ.</p></div></li>
+        <li><span>2</span><div><b>Скопируйте ссылку</b><p>Она содержит только отдельный служебный AWG-профиль Cascade. Обычным пользователям её не передают.</p></div></li>
+        <li><span>3</span><div><b>На сервере подключения (Inbound)</b><p>Откройте тот же экран, вставьте ссылку и нажмите «Проверить ссылку и включить Cascade».</p></div></li>
+        <li><span>4</span><div><b>Дождитесь проверки серверного маршрута</b><p>Панель проверяет Outbound, policy routing и IP сервера выхода. Это ещё не подтверждение работы устройства.</p></div></li>
+        <li><span>5</span><div><b>Проверьте VPN-клиент</b><p>Откройте на клиенте любой сайт и нажмите «Проверить подключение клиента». Панель подтверждает свежий handshake, трафик и правильную метку маршрута Cascade; старые сессии при переключении сбрасываются автоматически.</p></div></li>
+      </ol>
+      <h3>Где создавать клиентов</h3><p>Только в разделе Clients на сервере подключения (Inbound). Новые клиенты также автоматически используют активный Cascade.</p>
+      <h3>Что означают статусы</h3><p><b>Серверный маршрут готов</b> означает, что Inbound связался с Outbound и применил маршрут. <b>Cascade работает</b> появляется только после проверки реального VPN-клиента. Если клиент не работает, нажмите «Повторить проверку», прочитайте простое сообщение об ошибке и откройте «Технические детали» только при необходимости.</p>
+      <h3>Как отключить Cascade и начать заново</h3>
+      <p><b>Для Cluster</b> достаточно нажать «Отключить Cascade и начать заново»: Controller вернёт Inbound на прямой выход и удалит управляемый служебный маршрут.</p>
+      <p><b>Для двух самостоятельных панелей полный сброс состоит из двух отдельных шагов:</b></p>
+      <ol class="help-steps compact">
+        <li><span>1</span><div><b>На сервере подключения (Inbound)</b><p>Нажмите «Отключить Cascade и начать заново». Панель удалит локальный маршрут Cascade и вернёт клиентов на прямой выход.</p></div></li>
+        <li><span>2</span><div><b>На сервере выхода (Outbound)</b><p>Откройте Cascade → «Другой сервер» и нажмите «Удалить служебный доступ Outbound». Только после этого служебный peer удалён на обеих сторонах.</p></div></li>
+      </ol>
+      <p>После полного сброса можно создать новую ссылку и подключить другой Outbound. Клиентов пересоздавать не нужно.</p>
+      <div class="help-callout warning"><b>Один сервер не может быть обеими сторонами</b><p>Inbound и Outbound должны быть разными. Для Cluster недоступные SG-Node заблокированы. Для самостоятельного сервера ссылка проверяется до применения.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="cluster" data-help="cluster node sg-node controller agent 585 clients heartbeat подключить команда повторное подключение">
+      <span class="section-kicker">07 · CLUSTER И SG-NODE</span><h2>Четыре прямых шага</h2>
+      <p><strong>Одна установка, одно имя и одна команда.</strong> Controller управляет SG-Node и безопасными заданиями. Agent сам передаёт адреса и метрики; ручной ввод IP и скрытые действия не нужны.</p>
+      <ol class="help-steps">
+        <li><span>1</span><div><b>Установите SG-Node</b><p>Выполните команду установки на чистой Ubuntu 24.04. Она загрузит runtime прямо с Controller и установит AmneziaWG, Agent, Nginx и зависимости.</p></div></li>
+        <li><span>2</span><div><b>Введите имя и сразу получите команду</b><p>Нажмите «Добавить и показать команду». Одноразовая команда с enrollment token появится прямо под формой и действует 30 минут.</p></div></li>
+        <li><span>3</span><div><b>Выполните команду на SG-Node</b><p>После сообщения <code>Подключение завершено. Agent active</code> вернитесь в Cluster. Статус «В сети», адрес, службы, heartbeat и реальный UDP-порт <code>585</code> появятся автоматически.</p></div></li>
+        <li><span>4</span><div><b>Добавьте клиента</b><p>Откройте Clients, нажмите «Добавить клиента» и выберите SG-Node как сервер подключения.</p></div></li>
+      </ol>
+      <h3>Повторное подключение</h3><p>У ожидающей или недоступной SG-Node нажмите «Создать команду подключения» прямо в мастере Cluster. Новая запись не создаётся, старый agent token отзывается, а команда сразу появляется на этой же странице.</p>
+      <h3>Защита от дублей</h3><p>SG-Node с одинаковым именем второй раз не создаётся. Безопасные пустые дубли старых версий удаляются автоматически; подключённая SG-Node и её клиенты никогда не затрагиваются.</p>
+      <h3>Почему SG-Node не в сети</h3><p>Проверьте время, доступ Node к HTTPS-адресу Controller и журнал <code>journalctl -u sg-awg-node-agent.service -n 100 --no-pager</code>. Heartbeat идёт от Node к Controller, отдельный управляющий порт на Node не требуется.</p>
+    </section>
+
+    <section class="panel-card help-section" id="security" data-help="security доступ панель https сертификат lets encrypt allowlist пароль session placeholder cloudflare">
+      <span class="section-kicker">08 · SECURITY</span><h2>Доступ к панели и защита</h2>
+      <h3>Nginx и backend</h3><p>Браузер обращается к публичному Nginx. Python backend слушает loopback и не должен быть доступен напрямую извне.</p>
+      <h3>HTTPS</h3><p>Укажите домен, направленный на сервер, и включите HTTPS. Certbot должен пройти HTTP-проверку. При лимите Let's Encrypt панель показывает точное время, после которого запрос можно повторить.</p>
+      <h3>Allowlist</h3><p>Ограничивает веб-интерфейс по IP/CIDR. Перед сохранением убедитесь, что текущий адрес входит в список, иначе можно потерять доступ.</p>
+      <h3>Пароль и сессии</h3><p>Смена пароля завершает активные сессии. Вкладка сессий позволяет отозвать отдельный браузер или все остальные входы.</p>
+      <h3>Cloudflare</h3><p>Cloudflare Proxy/Tunnel может скрыть прямой адрес панели, но не заменяет пароль, HTTPS, allowlist и обновления.</p>
+    </section>
+
+    <section class="panel-card help-section" id="maintenance" data-help="maintenance backup резервная копия восстановить update обновление rollback скачать">
+      <span class="section-kicker">09 · MAINTENANCE</span><h2>Резервные копии и обновления</h2>
+      <h3>Backup</h3><p>Резервная копия включает базу данных, управляемые конфигурации и настройки панели. Перед восстановлением панель проверяет архив и создаёт страховочную копию текущего состояния.</p>
+      <h3>Restore</h3><p>После восстановления службы пересобираются и проверяются. При ошибке используется rollback.</p>
+      <h3>Updates</h3><p>Обновление загружает исходники, делает backup, запускает проверки и только затем переключает рабочую версию. Полный технический журнал сохраняется.</p>
+      <div class="help-callout"><b>Cluster</b><p>Backup Controller хранит записи и токены SG-Node. Конфигурации и локальные журналы каждой Node нужно резервировать отдельно.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="diagnostics" data-help="диагностика ошибка journalctl status report логи cascade node awg">
+      <span class="section-kicker">10 · ДИАГНОСТИКА</span><h2>Что приложить к сообщению об ошибке</h2>
+      <ul class="help-checklist">
+        <li>Версию SG-AWG-Panel и Ubuntu.</li>
+        <li>Название действия и точный текст ошибки.</li>
+        <li>Безопасный отчёт System → Logs & Diagnostics.</li>
+        <li>Для Cascade — состояние шага проверки, endpoint без приватного ключа и назначенных клиентов.</li>
+        <li>Для SG-Node — статус Agent, время последнего heartbeat и результат задания Diagnostics.</li>
+      </ul>
+      <div class="help-callout danger"><b>Не публикуйте</b><p>PrivateKey, PresharedKey, access token, enrollment token, agent token, полный backup и содержимое клиентского .conf.</p></div>
+    </section>
+
+    <section class="panel-card help-section" id="faq" data-help="faq вопросы домен ip маршрутизация каскад кластер node github интернет">
+      <span class="section-kicker">11 · FAQ</span><h2>Частые вопросы</h2>
+      <details><summary>Нужен ли домен?</summary><p>Для обычного HTTP по IP — нет. Для нормального публичного HTTPS нужен домен, направленный на сервер. Для Agent желательно использовать стабильный HTTPS-адрес Controller.</p></details>
+      <details><summary>Нужен ли GitHub при установке из архива?</summary><p>Нет. Исходники панели устанавливаются из загруженного архива. Интернет нужен для системных пакетов, AmneziaWG и других зависимостей.</p></details>
+      <details><summary>Чем Cascade отличается от Cluster?</summary><p>Cascade — маршрут трафика через два сервера. Cluster — централизованное наблюдение и управление несколькими SG-Node. Их можно использовать отдельно или вместе.</p></details>
+      <details><summary>Можно ли получить российский IP через Cascade?</summary><p>Да, если Exit-сервер физически находится в России и его провайдер выдаёт российский IP. Сам Cascade страну IP не создаёт.</p></details>
+      <details><summary>Нужно ли менять конфигурации клиентов после включения Cascade?</summary><p>Нет. Клиент по-прежнему подключается к своему серверу подключения; маршрут до сервера выхода применяется на стороне серверов.</p></details>
+    </section>
+
+    <div class="help-no-results" id="help-no-results" hidden>Ничего не найдено. Попробуйте более короткий запрос.</div>
+  </div>
+</div>
+<script>
+(() => {
+  const input = document.getElementById('help-search-input');
+  const sections = [...document.querySelectorAll('.help-section')];
+  const empty = document.getElementById('help-no-results');
+  input?.addEventListener('input', () => {
+    const query = input.value.trim().toLocaleLowerCase('ru');
+    let visible = 0;
+    sections.forEach(section => {
+      const haystack = ((section.dataset.help || '') + ' ' + section.textContent).toLocaleLowerCase('ru');
+      const show = !query || query.split(/\s+/).every(word => haystack.includes(word));
+      section.hidden = !show;
+      if (show) visible += 1;
+    });
+    empty.hidden = visible !== 0;
+  });
+})();
+</script>
+{% endblock %}

@@ -81,7 +81,7 @@ run_logged "Подготовка пакетной системы..." dpkg --conf
 run_logged "Обновление списка пакетов..." apt-get -o Dpkg::Use-Pty=0 update -qq
 run_logged "Установка системных зависимостей..." env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Dpkg::Use-Pty=0 install -y -qq \
   software-properties-common python3-launchpadlib gnupg2 \
-  "linux-headers-${KERNEL}" iptables nftables iproute2 ca-certificates curl tar psmisc
+  "linux-headers-${KERNEL}" iptables nftables conntrack iproute2 util-linux ca-certificates curl tar psmisc
 
 run_logged "Включение исходных репозиториев Ubuntu..." \
   enable_ubuntu_source_repositories

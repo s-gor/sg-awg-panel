@@ -433,9 +433,14 @@ def _validate_managed_peers(
         raise ValueError(
             f"Реальный ListenPort SG-Node: {runtime.get('listen_port') or 'не определён'}, ожидается 585"
         )
-    expected_key = str(expected.get("server_public_key") or "").strip()
-    if not expected_key or str(runtime.get("public_key") or "").strip() != expected_key:
-        raise ValueError("Публичный ключ работающего awg0 не совпадает с данными Controller")
+    # The authenticated SG-Node is authoritative for its current awg0 key.
+    # A key may legitimately change after a clean reinstall or an awg0 rebuild
+    # between the last heartbeat and this job. Rejecting the whole client sync
+    # leaves the Node unusable. The actual key is returned in the verified job
+    # result and Controller updates its runtime before exporting the profile.
+    actual_key = str(runtime.get("public_key") or "").strip()
+    if not actual_key:
+        raise ValueError("Не удалось определить публичный ключ работающего awg0")
     expected_network = str(expected.get("server_network") or "").strip()
     if not expected_network or str(runtime.get("server_network") or "") != expected_network:
         raise ValueError("Сеть работающего awg0 не совпадает с данными Controller")

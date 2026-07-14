@@ -33,7 +33,8 @@ def test_self_extracting_installers_are_reproducible_and_do_not_need_unzip():
     assert "tar -xzf -" in builder
     assert "unzip" not in builder
     assert "install.sh" in builder
-    assert "01-install-sg-awg-node.sh" in builder
+    assert "update.sh" in builder
+    assert "INSTALL-SG-AWG-NODE" not in builder
     assert "--verify" in builder
 
 
@@ -41,5 +42,6 @@ def test_readme_leads_with_no_unzip_installation():
     readme = read("README.md")
     assert "Рекомендуемая установка на новую EC2 без unzip" in readme
     assert "0.7.0-RC3-INSTALL-SG-AWG-PANEL.run" in readme
-    assert "0.7.0-RC3-INSTALL-SG-AWG-NODE.run" in readme
+    assert "0.7.0-RC3-INSTALL-SG-AWG-NODE.run" not in readme
+    assert readme.count("sudo bash 0.7.0-RC3-INSTALL-SG-AWG-PANEL.run") >= 2
     assert "sudo bash 0.7.0-RC3-INSTALL-SG-AWG-PANEL.run" in readme

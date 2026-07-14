@@ -80,31 +80,17 @@ HEADER
 }
 
 PANEL_RUN="$OUTPUT_DIR/${VERSION}-INSTALL-SG-AWG-PANEL.run"
-NODE_RUN="$OUTPUT_DIR/${VERSION}-INSTALL-SG-AWG-NODE.run"
+UPDATE_RUN="$OUTPUT_DIR/${VERSION}-UPDATE-SG-AWG-PANEL.run"
 PANEL_PAYLOAD="$(mktemp /tmp/sg-awg-panel-payload.XXXXXX.tar.gz)"
-NODE_PAYLOAD="$(mktemp /tmp/sg-awg-node-payload.XXXXXX.tar.gz)"
-trap 'rm -f "$PANEL_PAYLOAD" "$NODE_PAYLOAD"' EXIT
+trap 'rm -f "$PANEL_PAYLOAD"' EXIT
 
 tar -czf "$PANEL_PAYLOAD" \
-  --exclude='.git' --exclude='.pytest_cache' --exclude='__pycache__' --exclude='*.pyc' \
+  --exclude='.git' --exclude='.pytest_cache' --exclude='.test-venv' --exclude='__pycache__' --exclude='*.pyc' \
   -C "$PARENT" "$ROOT_NAME"
-
-node_members=(
-  01-install-sg-awg-node.sh
-  deploy/install-node-runtime.sh
-  deploy/install-node-agent.sh
-  deploy/install-amneziawg.sh
-  deploy/install-common.sh
-  node_agent/__init__.py
-  node_agent/agent.py
-  awgpanel/__init__.py
-)
-tar -czf "$NODE_PAYLOAD" -C "$PARENT" \
-  "${node_members[@]/#/$ROOT_NAME/}"
 
 make_header 'SG-AWG-Panel' 'install.sh' "$ROOT_NAME" >"$PANEL_RUN"
 cat "$PANEL_PAYLOAD" >>"$PANEL_RUN"
-make_header 'SG-AWG Node Runtime' '01-install-sg-awg-node.sh' "$ROOT_NAME" >"$NODE_RUN"
-cat "$NODE_PAYLOAD" >>"$NODE_RUN"
-chmod 0755 "$PANEL_RUN" "$NODE_RUN"
-printf '%s\\n%s\\n' "$PANEL_RUN" "$NODE_RUN"
+make_header 'SG-AWG-Panel Update' 'update.sh' "$ROOT_NAME" >"$UPDATE_RUN"
+cat "$PANEL_PAYLOAD" >>"$UPDATE_RUN"
+chmod 0755 "$PANEL_RUN" "$UPDATE_RUN"
+printf '%s\n%s\n' "$PANEL_RUN" "$UPDATE_RUN"

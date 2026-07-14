@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ $EUID -eq 0 ]] || { echo "Запустите через sudo bash" >&2; exit 1; }
-[[ -f /opt/sg-awg-node/agent.py ]] || { echo "Сначала выполните 01-install-sg-awg-node.sh" >&2; exit 1; }
+[[ -f /opt/sg-awg-panel/awgpanel/__init__.py && -f /opt/sg-awg-node/agent.py ]] || { echo "Сначала установите полную SG-AWG-Panel тем же универсальным установщиком" >&2; exit 1; }
 [[ "$CONTROLLER" =~ ^https?://[^[:space:]]+$ ]] || { echo "Некорректный адрес Controller" >&2; exit 1; }
 [[ "$NODE_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "Некорректный идентификатор SG-Node" >&2; exit 1; }
 [[ ${#ENROLLMENT_TOKEN} -ge 24 ]] || { echo "Некорректный одноразовый токен" >&2; exit 1; }
@@ -40,7 +40,7 @@ trap 'rm -f "$TMP_RESPONSE"' EXIT
 
 CONTROLLER="$CONTROLLER" NODE_SLUG="$NODE_SLUG" ENROLLMENT_TOKEN="$ENROLLMENT_TOKEN" \
 INSECURE_TLS="$INSECURE_TLS" RESPONSE_FILE="$TMP_RESPONSE" python3 - <<'PY'
-import json, os, platform, shutil, socket, ssl, subprocess, urllib.request, urllib.error
+import ipaddress, json, os, platform, re, shutil, socket, ssl, subprocess, urllib.request, urllib.error
 
 def run(cmd):
     try:
@@ -61,6 +61,51 @@ def public_ip():
         except Exception: pass
     return ""
 
+def awg_runtime():
+    conf = "/etc/amnezia/amneziawg/awg0.conf"
+    values = {}
+    try:
+        section = ""
+        for raw in open(conf, encoding="utf-8"):
+            line = raw.strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line.casefold()
+                continue
+            if section == "[interface]" and "=" in line:
+                key, value = line.split("=", 1)
+                values[key.strip().casefold()] = value.strip()
+    except OSError:
+        return {}
+    address = values.get("address", "").split(",", 1)[0].strip()
+    try:
+        interface = ipaddress.ip_interface(address)
+        network = str(interface.network)
+        interface_address = str(interface)
+    except ValueError:
+        network = ""
+        interface_address = ""
+    try:
+        configured_port = int(values.get("listenport") or 0)
+    except ValueError:
+        configured_port = 0
+    public_key = run(["awg", "show", "awg0", "public-key"]).splitlines()
+    listen_port = run(["awg", "show", "awg0", "listen-port"]).splitlines()
+    try:
+        runtime_port = int(listen_port[0]) if listen_port else 0
+    except ValueError:
+        runtime_port = 0
+    return {
+        "configured": bool(interface_address and configured_port),
+        "interface": "awg0",
+        "interface_address": interface_address,
+        "server_network": network,
+        "listen_port": runtime_port or configured_port,
+        "configured_listen_port": configured_port,
+        "public_key": public_key[0].strip() if public_key else "",
+        "peers": {},
+        "address_claims": [],
+    }
+
 os_release={}
 try:
     for line in open('/etc/os-release',encoding='utf-8'):
@@ -72,10 +117,11 @@ payload={
   "node":os.environ["NODE_SLUG"],
   "token":os.environ["ENROLLMENT_TOKEN"],
   "metadata":{
-    "agent_version":"208","os_name":os_release.get("NAME",platform.system()),
+    "agent_version":"0.7.0-RC3","os_name":os_release.get("NAME",platform.system()),
     "os_version":os_release.get("VERSION_ID",platform.release()),"kernel":platform.release(),
     "public_ipv4":public_ip(),"private_ipv4":private_ip(),
     "awg_version":(run(["awg","--version"]).splitlines() or [""])[0],
+    "awg_runtime":awg_runtime(),
     "capabilities":{"amneziawg":True,"metrics":True,"diagnostics":True,"safe_service_restart":True,"managed_clients":True,"arbitrary_shell":False}
   }
 }

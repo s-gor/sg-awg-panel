@@ -722,7 +722,7 @@ def finish_job(node_id: int, job_id: int, *, ok: bool, result: dict[str, Any] | 
             ok
             and verified == expected_active
             and result_port == 585
-            and result_key == str(expected_runtime.get("server_public_key") or "").strip()
+            and bool(result_key)
             and result_network == str(expected_runtime.get("server_network") or "").strip()
         )
         if not verified_ok:

@@ -56,7 +56,20 @@ rollback(){
     mkdir -p /etc/amnezia/amneziawg
     rsync -a --delete "$BACKUP_DIR/amneziawg/" /etc/amnezia/amneziawg/ >>"$LOG_FILE" 2>&1 || true
   fi
+  if [[ -f "$BACKUP_DIR/node-agent.tar.gz" ]]; then
+    rm -rf /opt/sg-awg-node
+    tar -xzf "$BACKUP_DIR/node-agent.tar.gz" -C / >>"$LOG_FILE" 2>&1 || true
+  elif [[ -f "$BACKUP_DIR/node-agent.was-absent" ]]; then
+    rm -rf /opt/sg-awg-node
+  fi
+  if [[ -f "$BACKUP_DIR/sg-awg-node-agent.service" ]]; then
+    install -m 0644 "$BACKUP_DIR/sg-awg-node-agent.service" /etc/systemd/system/sg-awg-node-agent.service || true
+  elif [[ -f "$BACKUP_DIR/node-agent-service.was-absent" ]]; then
+    rm -f /etc/systemd/system/sg-awg-node-agent.service
+  fi
+  systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
   systemctl restart "$SERVICE_NAME" >>"$LOG_FILE" 2>&1 || true
+  [[ -f /etc/sg-awg-node/agent.env ]] && systemctl restart sg-awg-node-agent.service >>"$LOG_FILE" 2>&1 || true
   say "[ОТКАТ] Предыдущая версия восстановлена. Журнал: $LOG_FILE"
   exit "$rc"
 }
@@ -109,6 +122,16 @@ if [[ -d /etc/amnezia/amneziawg ]]; then
   mkdir -p "$BACKUP_DIR/amneziawg"
   rsync -a /etc/amnezia/amneziawg/ "$BACKUP_DIR/amneziawg/"
 fi
+if [[ -d /opt/sg-awg-node ]]; then
+  tar -czf "$BACKUP_DIR/node-agent.tar.gz" -C / opt/sg-awg-node
+else
+  touch "$BACKUP_DIR/node-agent.was-absent"
+fi
+if [[ -f /etc/systemd/system/sg-awg-node-agent.service ]]; then
+  cp -a /etc/systemd/system/sg-awg-node-agent.service "$BACKUP_DIR/sg-awg-node-agent.service"
+else
+  touch "$BACKUP_DIR/node-agent-service.was-absent"
+fi
 ROLLBACK_READY=1
 
 say "[2/5] Обновляю только файлы панели..."
@@ -137,7 +160,9 @@ AWG_SERVICE="$(get_env AWGPANEL_AWG_SERVICE sg-awg-server)"
 AWGPANEL_DB="$DB_PATH" AWGPANEL_AWG_CONFIG_DIR="$AWG_CONFIG_DIR" AWGPANEL_AWG_SERVICE="$AWG_SERVICE" \
   .venv/bin/python -m awgpanel init-db >>"$LOG_FILE" 2>&1
 
-say "[4/5] Перезапускаю веб-панель..."
+say "[4/5] Обновляю универсальный Agent и перезапускаю панель..."
+# Agent установлен на каждой полной панели заранее и остаётся неактивным до подключения.
+bash "$PROJECT_DIR/deploy/install-node-agent.sh" "$PROJECT_DIR" >>"$LOG_FILE" 2>&1
 # Существующий systemd unit и Nginx не переписываются при обычном обновлении.
 systemctl restart "$SERVICE_NAME"
 BACKEND_PORT="$(get_env AWGPANEL_PORT 18080)"
@@ -156,12 +181,16 @@ grep -Fq "$EXPECTED_MARKER" "$PROJECT_DIR/awgpanel/static/app.css" \
   || fail "интерфейс $EXPECTED_UI не подтверждён"
 [[ -f "$DB_PATH" && -s "$DB_PATH" ]] || fail "база данных отсутствует после обновления"
 systemctl is-active --quiet "$SERVICE_NAME" || fail "служба панели не активна"
+systemctl is-enabled --quiet sg-awg-node-agent.service || fail "универсальный Agent не подготовлен"
+if [[ -f /etc/sg-awg-node/agent.env ]]; then
+  systemctl is-active --quiet sg-awg-node-agent.service || fail "подключённый Agent не активен после обновления"
+fi
 
 UPDATE_COMPLETE=1
 trap - ERR INT TERM
 say
 say "ГОТОВО: SG-AWG-Panel обновлена ${INSTALLED_BEFORE:-?} → $EXPECTED_VERSION"
 say "ГОТОВО: классический интерфейс $EXPECTED_UI установлен и проверен"
-say "Данные, Clients, Cluster и Cascade сохранены"
+say "Данные, Clients, Cluster, Cascade и подключение Agent сохранены"
 say "Резервная копия: $BACKUP_DIR"
 say "Журнал: $LOG_FILE"

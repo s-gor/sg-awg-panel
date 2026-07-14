@@ -165,3 +165,10 @@
 - Unified navigation order with SG-Panel.
 - Hardened responsive card and configuration layouts against horizontal overflow.
 - Cascade runtime logic intentionally unchanged pending two-EC2 live repair.
+
+### 0.7.0-RC3 — SG-Node key synchronization fix
+
+- Исправлено отклонение клиентов SG-Node при изменившемся ключе работающего `awg0`.
+- Controller автоматически принимает подтверждённый текущий ключ от Agent и обновляет конфигурацию выдаваемого профиля.
+- Enrollment Node теперь сразу передаёт `awg_runtime`.
+- Pytest в GitHub Actions использует временные служебные пути.

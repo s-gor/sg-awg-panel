@@ -12,37 +12,49 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       AWGPANEL_SECRET_KEY: "github-actions-test-secret"
-      AWGPANEL_DB: "${{ runner.temp }}/sg-awg-panel/panel.db"
-      AWGPANEL_DATA_DIR: "${{ runner.temp }}/sg-awg-panel/data"
-      AWGPANEL_BACKUP_DIR: "${{ runner.temp }}/sg-awg-panel/backups"
-      AWGPANEL_ACCESS_JOBS_DIR: "${{ runner.temp }}/sg-awg-panel/access-jobs"
-      AWGPANEL_OPERATION_JOBS_DIR: "${{ runner.temp }}/sg-awg-panel/operation-jobs"
-      AWGPANEL_TRAFFIC_STATE_DIR: "${{ runner.temp }}/sg-awg-panel/traffic-rules"
-      AWGPANEL_TRAFFIC_LOCK: "${{ runner.temp }}/sg-awg-panel/traffic.lock"
-      AWGPANEL_OUTBOUND_CONFIG_DIR: "${{ runner.temp }}/sg-awg-panel/outbounds"
-      AWGPANEL_AWG_CONFIG_DIR: "${{ runner.temp }}/sg-awg-panel/amneziawg"
-      AWGPANEL_PLACEHOLDER_PATH: "${{ runner.temp }}/sg-awg-panel/placeholder/index.html"
-      AWGPANEL_ENV_FILE: "${{ runner.temp }}/sg-awg-panel/web.env"
-      AWGPANEL_UPDATE_STATUS: "${{ runner.temp }}/sg-awg-panel/update/status.json"
-      AWGPANEL_UPDATE_LOG: "${{ runner.temp }}/sg-awg-panel/update/update.log"
-      AWGPANEL_DNSMASQ_CONFIG: "${{ runner.temp }}/sg-awg-panel/dnsmasq/sg-awg-traffic.conf"
-      AWGPANEL_TRAFFIC_SCHEDULE_STATE: "${{ runner.temp }}/sg-awg-panel/traffic-rules/schedule-state.json"
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+
       - name: Prepare isolated test runtime
-        run: mkdir -p "${{ runner.temp }}/sg-awg-panel"
+        shell: bash
+        run: |
+          TEST_ROOT="$RUNNER_TEMP/sg-awg-panel"
+          mkdir -p "$TEST_ROOT"
+          {
+            echo "AWGPANEL_DB=$TEST_ROOT/panel.db"
+            echo "AWGPANEL_DATA_DIR=$TEST_ROOT/data"
+            echo "AWGPANEL_BACKUP_DIR=$TEST_ROOT/backups"
+            echo "AWGPANEL_ACCESS_JOBS_DIR=$TEST_ROOT/access-jobs"
+            echo "AWGPANEL_OPERATION_JOBS_DIR=$TEST_ROOT/operation-jobs"
+            echo "AWGPANEL_TRAFFIC_STATE_DIR=$TEST_ROOT/traffic-rules"
+            echo "AWGPANEL_TRAFFIC_LOCK=$TEST_ROOT/traffic.lock"
+            echo "AWGPANEL_OUTBOUND_CONFIG_DIR=$TEST_ROOT/outbounds"
+            echo "AWGPANEL_AWG_CONFIG_DIR=$TEST_ROOT/amneziawg"
+            echo "AWGPANEL_PLACEHOLDER_PATH=$TEST_ROOT/placeholder/index.html"
+            echo "AWGPANEL_ENV_FILE=$TEST_ROOT/web.env"
+            echo "AWGPANEL_UPDATE_STATUS=$TEST_ROOT/update/status.json"
+            echo "AWGPANEL_UPDATE_LOG=$TEST_ROOT/update/update.log"
+            echo "AWGPANEL_DNSMASQ_CONFIG=$TEST_ROOT/dnsmasq/sg-awg-traffic.conf"
+            echo "AWGPANEL_TRAFFIC_SCHEDULE_STATE=$TEST_ROOT/traffic-rules/schedule-state.json"
+          } >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
+
       - name: Run tests
         run: python -m pytest -q
+
       - name: Check shell syntax
         run: find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n

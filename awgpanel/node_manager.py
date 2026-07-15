@@ -7,6 +7,7 @@ import re
 import secrets
 import shlex
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from .db import connect, init_db
@@ -73,6 +74,13 @@ def _parse_stamp(value: object) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _local_machine_id() -> str:
+    try:
+        return Path("/etc/machine-id").read_text(encoding="utf-8").strip()[:128]
+    except OSError:
+        return ""
 
 
 def _token_hash(token: str) -> str:
@@ -159,13 +167,14 @@ def ensure_local_node(
                 """
                 INSERT INTO cluster_nodes (
                     slug, name, role, state, is_local, node_slot, vpn_network, public_host, country_code,
-                    registered_at, last_seen_at, agent_version, capabilities_json
-                ) VALUES ('controller', ?, 'controller', 'online', 1, 0, '10.77.0.0/24', ?, ?, ?, ?, 'built-in', ?)
+                    machine_id, registered_at, last_seen_at, agent_version, capabilities_json
+                ) VALUES ('controller', ?, 'controller', 'online', 1, 0, '10.77.0.0/24', ?, ?, ?, ?, ?, 'built-in', ?)
                 """,
                 (
                     name.strip() or "SG-AWG Controller",
                     public_host.strip(),
                     normalize_country_code(country_code),
+                    _local_machine_id(),
                     _stamp(),
                     _stamp(),
                     json.dumps({"controller": True, "amneziawg": True}),
@@ -187,6 +196,7 @@ def ensure_local_node(
                 """
                 UPDATE cluster_nodes
                 SET name=?, public_host=?, node_slot=?, vpn_network=?, state='online', last_seen_at=?,
+                    machine_id=CASE WHEN ?<>'' THEN ? ELSE machine_id END,
                     country_code=CASE
                         WHEN country_mode='auto' AND ?<>'' THEN ? ELSE country_code END,
                     country_updated_at=CASE
@@ -200,6 +210,8 @@ def ensure_local_node(
                     assigned_slot,
                     assigned_network,
                     _stamp(),
+                    _local_machine_id(),
+                    _local_machine_id(),
                     normalize_country_code(country_code),
                     normalize_country_code(country_code),
                     normalize_country_code(country_code),
@@ -488,13 +500,31 @@ def enroll_node(*, slug: str, enrollment_token: str, metadata: dict[str, Any]) -
     values = _metadata_values(metadata)
     with connect() as con:
         con.execute("BEGIN IMMEDIATE")
+        local = con.execute(
+            "SELECT machine_id,public_ipv4,private_ipv4 FROM cluster_nodes WHERE is_local=1 LIMIT 1"
+        ).fetchone()
+        same_machine = bool(
+            local
+            and values["machine_id"]
+            and str(local["machine_id"] or "")
+            and secrets.compare_digest(str(local["machine_id"]), values["machine_id"])
+        )
+        same_addresses = bool(
+            local
+            and values["public_ipv4"]
+            and values["private_ipv4"]
+            and str(local["public_ipv4"] or "") == values["public_ipv4"]
+            and str(local["private_ipv4"] or "") == values["private_ipv4"]
+        )
+        if same_machine or same_addresses:
+            raise ValueError("Этот сервер уже является Controller. Подключить его как SG-Node нельзя")
         _allocate_pool(con, int(node["id"]))
         con.execute(
             """
             UPDATE cluster_nodes SET
                 state='online', agent_token_hash=?, enrollment_token_hash='',
                 enrollment_expires_at=NULL, registered_at=COALESCE(registered_at, ?),
-                last_seen_at=?, agent_version=?, os_name=?, os_version=?, kernel=?,
+                last_seen_at=?, agent_version=?, os_name=?, os_version=?, kernel=?, machine_id=?,
                 public_ipv4=?, private_ipv4=?,
                 country_code=CASE WHEN country_mode='auto' AND ?<>'' THEN ? ELSE country_code END,
                 country_updated_at=CASE WHEN country_mode='auto' AND ?<>'' THEN CURRENT_TIMESTAMP ELSE country_updated_at END,
@@ -507,7 +537,7 @@ def enroll_node(*, slug: str, enrollment_token: str, metadata: dict[str, Any]) -
             (
                 _token_hash(agent_token), now, now,
                 values["agent_version"], values["os_name"], values["os_version"],
-                values["kernel"], values["public_ipv4"], values["private_ipv4"],
+                values["kernel"], values["machine_id"], values["public_ipv4"], values["private_ipv4"],
                 values["country_code"], values["country_code"], values["country_code"],
                 values["awg_version"], values["panel_version"],
                 values["capabilities_json"], values["awg_runtime_json"],
@@ -546,6 +576,11 @@ def _metadata_values(metadata: dict[str, Any]) -> dict[str, Any]:
     runtime = metadata.get("awg_runtime")
     if not isinstance(runtime, dict):
         runtime = {}
+    runtime = dict(runtime)
+    server_public_key = str(runtime.get("server_public_key") or runtime.get("public_key") or "").strip()
+    if server_public_key:
+        runtime["server_public_key"] = server_public_key
+        runtime["public_key"] = server_public_key
     runtime_json = json.dumps(runtime, ensure_ascii=False, sort_keys=True)
     if len(runtime_json) > 131072:
         runtime = dict(runtime)
@@ -565,6 +600,7 @@ def _metadata_values(metadata: dict[str, Any]) -> dict[str, Any]:
         "os_name": _clean_text(metadata.get("os_name"), 96),
         "os_version": _clean_text(metadata.get("os_version"), 96),
         "kernel": _clean_text(metadata.get("kernel"), 160),
+        "machine_id": _clean_text(metadata.get("machine_id"), 128),
         "public_ipv4": _clean_text(metadata.get("public_ipv4"), 64),
         "private_ipv4": _clean_text(metadata.get("private_ipv4"), 64),
         "country_code": normalize_country_code(metadata.get("country_code")),
@@ -586,7 +622,8 @@ def heartbeat(node_id: int, metadata: dict[str, Any]) -> dict[str, Any]:
             """
             UPDATE cluster_nodes SET
                 state='online', last_seen_at=?, agent_version=?, os_name=?, os_version=?,
-                kernel=?, public_ipv4=CASE WHEN ?<>'' THEN ? ELSE public_ipv4 END,
+                kernel=?, machine_id=CASE WHEN ?<>'' THEN ? ELSE machine_id END,
+                public_ipv4=CASE WHEN ?<>'' THEN ? ELSE public_ipv4 END,
                 private_ipv4=CASE WHEN ?<>'' THEN ? ELSE private_ipv4 END,
                 country_code=CASE WHEN country_mode='auto' AND ?<>'' THEN ? ELSE country_code END,
                 country_updated_at=CASE WHEN country_mode='auto' AND ?<>'' THEN CURRENT_TIMESTAMP ELSE country_updated_at END,
@@ -600,7 +637,8 @@ def heartbeat(node_id: int, metadata: dict[str, Any]) -> dict[str, Any]:
             """,
             (
                 _stamp(), values["agent_version"], values["os_name"], values["os_version"],
-                values["kernel"], values["public_ipv4"], values["public_ipv4"],
+                values["kernel"], values["machine_id"], values["machine_id"],
+                values["public_ipv4"], values["public_ipv4"],
                 values["private_ipv4"], values["private_ipv4"],
                 values["country_code"], values["country_code"], values["country_code"],
                 values["awg_version"], values["panel_version"],
@@ -742,6 +780,20 @@ def finish_job(node_id: int, job_id: int, *, ok: bool, result: dict[str, Any] | 
         raise PermissionError("Задание принадлежит другой SG-Node")
 
     result_data = dict(result or {})
+    if str(job.get("kind") or "") == "refresh" and ok:
+        metadata = result_data.get("metadata")
+        if not isinstance(metadata, dict):
+            ok = False
+            result_data = {"message": "SG-Node не вернула данные подключения"}
+        else:
+            refreshed = heartbeat(int(node_id), metadata)
+            runtime = refreshed.get("awg_runtime") if isinstance(refreshed.get("awg_runtime"), dict) else {}
+            result_data = {
+                **result_data,
+                "message": "Подключение SG-Node обновлено",
+                "last_seen_at": str(refreshed.get("last_seen_at") or ""),
+                "server_public_key": str(runtime.get("server_public_key") or runtime.get("public_key") or ""),
+            }
     message = _clean_text(result_data.get("message"), 1024)
     encoded = json.dumps(result_data, ensure_ascii=False, sort_keys=True)
     if len(encoded) > 262144:
@@ -841,6 +893,9 @@ def finish_job(node_id: int, job_id: int, *, ok: bool, result: dict[str, Any] | 
                 )
             runtime = result_data.get("runtime")
             if verified_ok and isinstance(runtime, dict):
+                runtime = dict(runtime)
+                runtime["server_public_key"] = result_key
+                runtime["public_key"] = result_key
                 con.execute(
                     "UPDATE cluster_nodes SET awg_runtime_json=?, public_port=585, "
                     "last_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?",

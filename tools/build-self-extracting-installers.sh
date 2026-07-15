@@ -85,7 +85,7 @@ PANEL_PAYLOAD="$(mktemp /tmp/sg-awg-panel-payload.XXXXXX.tar.gz)"
 trap 'rm -f "$PANEL_PAYLOAD"' EXIT
 
 tar -czf "$PANEL_PAYLOAD" \
-  --exclude='.git' --exclude='.pytest_cache' --exclude='.test-venv' --exclude='__pycache__' --exclude='*.pyc' \
+  --exclude='.git' --exclude='.pytest_cache' --exclude='.test-venv' --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' \
   -C "$PARENT" "$ROOT_NAME"
 
 make_header 'SG-AWG-Panel' 'install.sh' "$ROOT_NAME" >"$PANEL_RUN"

@@ -117,6 +117,13 @@ def _memory_percent() -> float:
         return 0.0
 
 
+def _machine_id() -> str:
+    try:
+        return Path("/etc/machine-id").read_text(encoding="utf-8").strip()[:128]
+    except OSError:
+        return ""
+
+
 def _private_ipv4() -> str:
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -341,6 +348,7 @@ def _awg_runtime() -> dict[str, Any]:
         "listen_port": runtime_port or configured_port,
         "configured_listen_port": configured_port,
         "public_key": public_key.strip() if rc_key == 0 else "",
+        "server_public_key": public_key.strip() if rc_key == 0 else "",
         "mtu": mtu,
         "masking": masking,
         "address_claims": address_claims,
@@ -357,6 +365,7 @@ def collect_metadata(*, include_public_ip: bool = False) -> dict[str, Any]:
         "os_name": os_release.get("NAME", platform.system()),
         "os_version": os_release.get("VERSION_ID", platform.release()),
         "kernel": platform.release(),
+        "machine_id": _machine_id(),
         "public_ipv4": public_ipv4,
         "private_ipv4": _private_ipv4(),
         "country_code": _country_code(public_ipv4) if public_ipv4 else _COUNTRY_CACHE[0],

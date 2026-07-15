@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     os_name TEXT NOT NULL DEFAULT '',
     os_version TEXT NOT NULL DEFAULT '',
     kernel TEXT NOT NULL DEFAULT '',
+    machine_id TEXT NOT NULL DEFAULT '',
     public_ipv4 TEXT NOT NULL DEFAULT '',
     private_ipv4 TEXT NOT NULL DEFAULT '',
     country_code TEXT NOT NULL DEFAULT '',
@@ -595,6 +596,8 @@ def _migrate(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_mode TEXT NOT NULL DEFAULT 'auto'")
     if "country_updated_at" not in node_columns:
         con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_updated_at TEXT")
+    if "machine_id" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN machine_id TEXT NOT NULL DEFAULT ''")
     con.execute("UPDATE cluster_nodes SET public_port=585 WHERE is_local=0 AND public_port<>585")
 
     # RC5: Controller and up to twelve SG-Node servers receive permanent,

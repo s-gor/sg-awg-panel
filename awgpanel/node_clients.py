@@ -16,12 +16,16 @@ def _runtime(node: dict[str, Any]) -> dict[str, Any]:
     return dict(runtime) if isinstance(runtime, dict) else {}
 
 
+def _server_public_key(runtime: dict[str, Any]) -> str:
+    return str(runtime.get("server_public_key") or runtime.get("public_key") or "").strip()
+
+
 def require_ready_node(node_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
     node = get_node(int(node_id))
     if bool(node.get("is_local")):
         raise ValueError("Для Controller используется локальный AWG Server")
     if str(node.get("effective_state")) != "online":
-        raise ValueError("SG-Node не в сети. Подключите её и нажмите «Обновить состояние»")
+        raise ValueError("SG-Node не в сети. Подключите её и нажмите «Обновить подключение ноды»")
     runtime = _runtime(node)
     try:
         port = int(runtime.get("listen_port") or node.get("public_port") or 0)
@@ -33,7 +37,7 @@ def require_ready_node(node_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
         )
     if str(node.get("service_awg")) != "active":
         raise ValueError("AmneziaWG на SG-Node не запущен")
-    public_key = str(runtime.get("public_key") or "").strip()
+    public_key = _server_public_key(runtime)
     slot = node.get("node_slot")
     desired_network = str(node.get("vpn_network") or "").strip()
     if slot is None or not desired_network:
@@ -55,6 +59,7 @@ def require_ready_node(node_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
     runtime["reported_interface_address"] = str(runtime.get("interface_address") or "")
     runtime["listen_port"] = port
     runtime["public_key"] = public_key
+    runtime["server_public_key"] = public_key
     runtime["server_network"] = str(network)
     runtime["interface_address"] = str(desired_interface)
     runtime["node_slot"] = int(slot)
@@ -266,7 +271,7 @@ def queue_node_client_sync(
         "mode": "sync_clients",
         "expected": {
             "listen_port": 585,
-            "server_public_key": str(runtime["public_key"]),
+            "server_public_key": _server_public_key(runtime),
             "server_network": str(runtime["server_network"]),
             "interface_address": str(runtime["interface_address"]),
             "node_slot": int(runtime["node_slot"]),
@@ -467,13 +472,18 @@ def render_remote_client_config(client: object) -> str:
     if str(row.get("deployment_state")) != "active":
         if str(row.get("deployment_state")) == "error":
             raise AWGPanelError(str(row.get("deployment_error") or "Клиент не применён на SG-Node"))
-        raise AWGPanelError("Клиент ещё применяется на SG-Node. Обновите страницу после следующего heartbeat")
+        raise AWGPanelError("Клиент ещё применяется на SG-Node. Страница обновится автоматически после подтверждения Agent")
     lifecycle = client_lifecycle(row)
     if not bool(row.get("enabled")):
         raise AWGPanelError("Клиент отключён администратором")
     if bool(lifecycle["expired"]):
         raise AWGPanelError("Срок действия клиента истёк")
     node, runtime = node_client_context(row)
+    server_public_key = _server_public_key(runtime)
+    if not server_public_key or server_public_key == str(row.get("public_key") or "").strip():
+        raise AWGPanelError(
+            "Подключение SG-Node нужно обновить. Откройте Cluster и нажмите «Обновить подключение ноды»"
+        )
     endpoint_host = str(node.get("public_ipv4") or node.get("public_host") or "").strip()
     if not endpoint_host:
         raise AWGPanelError("SG-Node не передала публичный IP")
@@ -522,7 +532,7 @@ def render_remote_client_config(client: object) -> str:
         *masking_lines,
         "",
         "[Peer]",
-        f"PublicKey = {runtime['public_key']}",
+        f"PublicKey = {server_public_key}",
         f"PresharedKey = {row['preshared_key']}",
         f"AllowedIPs = {allowed_ips}",
         f"Endpoint = {endpoint_host}:{int(runtime['listen_port'])}",

@@ -979,7 +979,7 @@ def create_app() -> Flask:
                 elif runtime_port != 585:
                     node["client_ready_reason"] = "Ожидается работающий UDP-порт 585"
                 else:
-                    node["client_ready_reason"] = "Откройте SG-Node в Cluster и нажмите «Обновить состояние»"
+                    node["client_ready_reason"] = "Откройте SG-Node в Cluster и нажмите «Обновить подключение ноды»"
                 node["client_endpoint"] = f"{node.get('public_ipv4') or node.get('public_host') or 'адрес ещё не получен'}:585"
         all_clients = list(awg["clients"])
         query = request.args.get("q", "").strip().lower()
@@ -3168,6 +3168,7 @@ def create_app() -> Flask:
 
     def render_node_detail_response(node_id: int, *, one_time_command: str = ""):
         node = get_node(node_id)
+        jobs = list_jobs(node_id)
         node_clients = [
             item for item in get_awg_overview()["clients"]
             if (node.get("is_local") and not item.get("node_id"))
@@ -3176,7 +3177,12 @@ def create_app() -> Flask:
         return render_template(
             "node_detail.html",
             node=node,
-            jobs=list_jobs(node_id),
+            jobs=jobs,
+            refresh_pending=any(
+                str(item.get("kind") or "") == "refresh"
+                and str(item.get("state") or "") in {"queued", "claimed"}
+                for item in jobs
+            ),
             node_clients=node_clients,
             one_time_command=one_time_command,
             controller_url=current_public_url(),
@@ -3409,8 +3415,12 @@ def create_app() -> Flask:
     def node_job_create(node_id: int):
         require_csrf()
         try:
-            job = queue_job(node_id, request.form.get("kind", "refresh"))
-            flash(f"Задание #{job['id']} передано SG-Node.", "success")
+            kind = request.form.get("kind", "refresh")
+            job = queue_job(node_id, kind)
+            if kind == "refresh":
+                flash("Обновление подключения SG-Node запущено. Страница обновится после ответа Agent.", "success")
+            else:
+                flash(f"Задание #{job['id']} передано SG-Node.", "success")
         except (ValueError, PermissionError, AWGPanelError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("node_detail_page", node_id=node_id))

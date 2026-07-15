@@ -107,7 +107,7 @@
     {% if node.is_local or (node.effective_state == 'online' and node.awg_runtime and node.awg_runtime.listen_port == 585 and node.awg_runtime.public_key and node.awg_runtime.server_network) %}<a class="button primary" href="{{ url_for('clients_page', node=node.id, open='add') }}">Добавить клиента</a>{% else %}<button class="button primary" type="button" disabled>Добавить клиента</button>{% endif %}
     <a class="button secondary" href="{{ url_for('clients_page', server=('controller' if node.is_local else node.id)) }}">Показать клиентов</a>
   </div>
-  {% if not node.is_local and node.effective_state == 'online' and (not node.awg_runtime or node.awg_runtime.listen_port != 585) %}<div class="alert error"><b>Клиентов создавать нельзя.</b> SG-Node должна подтвердить работающий awg0 на обычном UDP-порту 585. Нажмите «Обновить состояние» или соберите диагностику.</div>{% endif %}
+  {% if not node.is_local and node.effective_state == 'online' and (not node.awg_runtime or node.awg_runtime.listen_port != 585) %}<div class="alert error"><b>Клиентов создавать нельзя.</b> SG-Node должна подтвердить работающий awg0 на обычном UDP-порту 585. Нажмите «Обновить подключение ноды» или соберите диагностику.</div>{% endif %}
 </section>
 
 {% if not node.is_local %}
@@ -115,7 +115,7 @@
   <div class="card-heading"><div><span class="section-kicker">ДЕЙСТВИЯ</span><h2>Безопасное управление</h2><p>Controller передаёт только фиксированные задания. Произвольный shell недоступен.</p></div></div>
   <div class="node-action-grid">
     {% for kind, label, description in [
-      ('refresh','Обновить состояние','Запросить новые метрики, службы и реальный awg0'),
+      ('refresh','Обновить подключение ноды','Заново получить heartbeat, службы, awg0, пул и данные клиентов'),
       ('diagnostics','Собрать диагностику','Версии, интерфейсы и журналы служб'),
       ('restart_awg','Перезапустить AWG','Перезапустить только AmneziaWG runtime'),
       ('restart_traffic','Перезапустить Traffic','Пересобрать правила маршрутизации'),
@@ -145,7 +145,7 @@
     try { if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value); else { const area=document.createElement('textarea'); area.value=value; area.style.position='fixed'; area.style.opacity='0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); } button.textContent='✓ Скопировано'; } catch (_) { button.textContent='Выделите и нажмите Ctrl+C'; }
     setTimeout(() => { button.textContent=original; }, 2400);
   }));
-  {% if not node.is_local and node.effective_state == 'pending' and not one_time_command %}setTimeout(() => window.location.reload(), 5000);{% endif %}
+  {% if not node.is_local and ((node.effective_state == 'pending' and not one_time_command) or refresh_pending) %}setTimeout(() => window.location.reload(), 5000);{% endif %}
 })();
 </script>
 {% endblock %}

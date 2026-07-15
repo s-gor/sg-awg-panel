@@ -102,6 +102,7 @@ def awg_runtime():
         "listen_port": runtime_port or configured_port,
         "configured_listen_port": configured_port,
         "public_key": public_key[0].strip() if public_key else "",
+        "server_public_key": public_key[0].strip() if public_key else "",
         "peers": {},
         "address_claims": [],
     }
@@ -119,6 +120,7 @@ payload={
   "metadata":{
     "agent_version":"0.7.0-RC5","os_name":os_release.get("NAME",platform.system()),
     "os_version":os_release.get("VERSION_ID",platform.release()),"kernel":platform.release(),
+    "machine_id":(open("/etc/machine-id",encoding="utf-8").read().strip()[:128] if os.path.isfile("/etc/machine-id") else ""),
     "public_ipv4":public_ip(),"private_ipv4":private_ip(),
     "awg_version":(run(["awg","--version"]).splitlines() or [""])[0],
     "awg_runtime":awg_runtime(),

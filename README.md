@@ -19,6 +19,27 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 
 > Текущая версия: `v0.7.0-RC5`.
 
+## Интерфейс RC5
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/rc5-system.png" alt="SG-AWG-Panel RC5 System"></td>
+<td width="50%"><img src="docs/screenshots/rc5-clients.png" alt="SG-AWG-Panel RC5 Clients"></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/rc5-cluster.png" alt="SG-AWG-Panel RC5 Cluster"></td>
+<td><img src="docs/screenshots/rc5-cascade.png" alt="SG-AWG-Panel RC5 Cascade"></td>
+</tr>
+</table>
+
+<details><summary>Security и SSH-меню</summary>
+
+![Security](docs/screenshots/rc5-security.png)
+
+![SSH menu](docs/screenshots/rc5-ssh-menu.png)
+
+</details>
+
 ## Главное в RC5
 
 - постоянные отдельные VPN-пулы: Controller `10.77.0.0/24`, SG-Node 1–12 — `10.77.1.0/24` … `10.77.12.0/24`;
@@ -60,6 +81,8 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 - отсутствие произвольного remote shell;
 - безопасные задания Agent;
 - синхронизация клиентов с реально работающим `awg0`;
+- отдельное обновление подключения Node без удаления и повторного enrollment;
+- автоматическое обновление статуса удалённого клиента до «Активен»;
 - сохранение локальных peers Node;
 - защита от конфликтов ключей и VPN-адресов.
 

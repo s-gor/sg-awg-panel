@@ -217,4 +217,11 @@
 })();
 </script>
 {% include "client_expiry_script.html" %}
+<script>
+(() => {
+  {% if client_stats.applying > 0 %}
+  window.setTimeout(() => window.location.reload(), 5000);
+  {% endif %}
+})();
+</script>
 {% endblock %}

@@ -2268,7 +2268,7 @@ body.ui-standard-page.beta9-ui .app-footer {
 .node-pending-buttons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:9px}.node-pending-buttons form{margin:0}
 @media(max-width:760px){.node-pending-buttons{display:grid}.node-pending-buttons .button{width:100%}}
 
-/* SG-AWG-Panel 0.7.0-RC3 — classic UI completion: compact Clients, visible checks, no horizontal table. */
+/* SG-AWG-Panel 0.7.0-RC4 — classic UI completion: compact Clients, visible checks, no horizontal table. */
 .clients-workspace{grid-template-columns:minmax(0,1fr) 360px;gap:16px}
 .clients-table-panel .beta9-table-wrap{overflow:visible}
 .clients-data-table{width:100%;min-width:0;table-layout:fixed}

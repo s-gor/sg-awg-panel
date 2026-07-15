@@ -15,13 +15,13 @@ def test_211_keeps_classic_design_and_rejects_experimental_209_layer():
     base = read("awgpanel/templates/base.html")
     css = read("awgpanel/static/app.css")
     assert "v209-ui" not in base
-    assert "SG-AWG-Panel 0.7.0-RC3 — classic UI completion" in css
-    assert "sgawg070rc3" in read("awgpanel/web.py")
+    assert "SG-AWG-Panel 0.7.0-RC4 — classic UI completion" in css
+    assert "sgawg070rc4" in read("awgpanel/web.py")
 
 
 def test_update_script_is_real_non_destructive_update():
     script = read("update.sh")
-    assert 'EXPECTED_VERSION="0.7.0-RC3"' in script
+    assert 'EXPECTED_VERSION="0.7.0-RC4"' in script
     assert "rsync -a --checksum --delete" in script
     assert "install-or-upgrade.sh" not in script
     assert "ensure-server" not in script

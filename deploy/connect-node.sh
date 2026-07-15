@@ -117,7 +117,7 @@ payload={
   "node":os.environ["NODE_SLUG"],
   "token":os.environ["ENROLLMENT_TOKEN"],
   "metadata":{
-    "agent_version":"0.7.0-RC3","os_name":os_release.get("NAME",platform.system()),
+    "agent_version":"0.7.0-RC4","os_name":os_release.get("NAME",platform.system()),
     "os_version":os_release.get("VERSION_ID",platform.release()),"kernel":platform.release(),
     "public_ipv4":public_ip(),"private_ipv4":private_ip(),
     "awg_version":(run(["awg","--version"]).splitlines() or [""])[0],

@@ -1,12 +1,19 @@
 # Changelog
 
-## v0.7.0-RC3 — 2026-07-14
+## v0.7.0-RC4 — 2026-07-15
 
-- Исправлена коллизия VPN-адресов между локальными peers SG-Node и клиентами, созданными через Controller.
-- Node Agent передаёт реальные AllowedIPs и признак владения peer в heartbeat.
-- Controller резервирует фактически занятые адреса Node и автоматически переносит старые конфликтующие managed-клиенты на свободный /32.
-- Agent блокирует применение managed peer, если его адрес уже принадлежит локальному peer SG-Node.
-- Версии: Panel `0.7.0-RC3`, UI `sgawg070rc3`, Node Agent `0.7.0-RC3`.
+- Добавлено единое нумерованное SSH-меню `sudo sg-awg-panel` для состояния, диагностики, пароля, сессий, Clients, Cluster, Cascade, backup/restore, обновления и uninstall.
+- Пункт 6 меняет пароль, пункт 9 проверяет клиентов, пункт 10 — Cluster/SG-Node, пункт 11 — Cascade.
+- Исправлен `CSRF token mismatch` на чистых установках и при открытии нескольких панелей в одном браузере.
+- Каждая установка использует собственное имя cookie и постоянный secret; устаревший CSRF безопасно возвращает на страницу входа.
+- Сохранена единая модель установки: один полный installer и один updater для любой EC2.
+- Исправлена синхронизация реального публичного ключа работающего `awg0` между SG-Node и Controller.
+- Controller учитывает фактически занятые `AllowedIPs` Node; Agent блокирует повторяющиеся VPN-адреса.
+- Сохранены локальные peers Node и обычный формат профиля удалённого клиента.
+- Сохранён классический интерфейс и все исправления Clients, Cluster и Cascade сборок 207–211.
+- GitHub Actions использует временные служебные пути вместо `/var/lib/sg-awg-panel`.
+- Добавлена структура `docs/screenshots/` для шести основных GitHub-скриншотов RC4.
+- Версии: Panel `0.7.0-RC4`, UI `sgawg070rc4`, Node Agent `0.7.0-RC4`.
 
 ## v211 — 2026-07-14
 
@@ -166,7 +173,7 @@
 - Hardened responsive card and configuration layouts against horizontal overflow.
 - Cascade runtime logic intentionally unchanged pending two-EC2 live repair.
 
-### 0.7.0-RC3 — SG-Node key synchronization fix
+### 0.7.0-RC4 — SG-Node key synchronization fix
 
 - Исправлено отклонение клиентов SG-Node при изменившемся ключе работающего `awg0`.
 - Controller автоматически принимает подтверждённый текущий ключ от Agent и обновляет конфигурацию выдаваемого профиля.

@@ -44,5 +44,5 @@ PUBLIC_PORT="${PUBLIC_PORT:-62443}"
 run_logged "Проверка панели через Nginx на TCP ${PUBLIC_PORT}..." \
   curl -fsS --max-time 10 "http://127.0.0.1:${PUBLIC_PORT}/health"
 
-install_info "SG-AWG-Panel v0.7.0-RC3 готова"
+install_info "SG-AWG-Panel v0.7.0-RC4 готова"
 install_info "Откройте TCP ${PUBLIC_PORT} в AWS Security Group"

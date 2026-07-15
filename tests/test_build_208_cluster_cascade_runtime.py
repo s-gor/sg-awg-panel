@@ -33,11 +33,11 @@ def login(client):
 
 
 def test_211_release_identifiers():
-    assert '__version__ = "0.7.0-RC3"' in (ROOT / "awgpanel/__init__.py").read_text()
-    assert 'version = "0.7.0rc3"' in (ROOT / "pyproject.toml").read_text()
-    assert 'RELEASE_VERSION="v0.7.0-RC3"' in (ROOT / "install.sh").read_text()
-    assert 'AGENT_VERSION = "0.7.0-RC3"' in (ROOT / "node_agent/agent.py").read_text()
-    assert "sgawg070rc3" in (ROOT / "awgpanel/web.py").read_text()
+    assert '__version__ = "0.7.0-RC4"' in (ROOT / "awgpanel/__init__.py").read_text()
+    assert 'version = "0.7.0rc4"' in (ROOT / "pyproject.toml").read_text()
+    assert 'RELEASE_VERSION="v0.7.0-RC4"' in (ROOT / "install.sh").read_text()
+    assert 'AGENT_VERSION = "0.7.0-RC4"' in (ROOT / "node_agent/agent.py").read_text()
+    assert "sgawg070rc4" in (ROOT / "awgpanel/web.py").read_text()
 
 
 def test_cluster_ui_shows_command_directly_and_has_no_card_workflow():

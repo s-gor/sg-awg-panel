@@ -29,3 +29,5 @@ _TEST_PATHS = {
 
 for name, path in _TEST_PATHS.items():
     os.environ.setdefault(name, str(path))
+
+os.environ.setdefault("AWGPANEL_SECRET_KEY", "test-secret-key-for-sg-awg-panel")

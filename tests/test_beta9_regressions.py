@@ -101,7 +101,7 @@ def test_rc1_resource_endpoint_is_lightweight_and_no_store():
     assert "def system_resources_json" in web
     assert "get_system_resources()" in web
     assert 'response.headers["Cache-Control"] = "no-store"' in web
-    assert "-sgawg070rc3" in web
+    assert "-sgawg070rc4" in web
 
 
 def test_rc3_system_information_architecture_and_removal_progress():
@@ -147,7 +147,7 @@ def test_rc3_candidate2_consolidated_sections_and_system_landing():
     assert "Разделы Network" in rules and "Разделы Network" in outbounds
     assert "Разделы Maintenance" in backups and "Разделы Maintenance" in updates
     assert web.count('return redirect(url_for("system_page"))') >= 3
-    assert '-sgawg070rc3' in web
+    assert '-sgawg070rc4' in web
 
 
 def test_rc3_candidate3_brand_favicon_is_hexagon_with_sg_only():

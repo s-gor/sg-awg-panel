@@ -92,6 +92,8 @@ run_logged "Установка SG-AWG-Panel..." .venv/bin/pip install \
   --disable-pip-version-check --no-cache-dir -q -r requirements.txt
 run_logged "Регистрация Python-пакета..." .venv/bin/pip install \
   --disable-pip-version-check --no-cache-dir -q -e .
+run_logged "Установка SSH-команды управления..." \
+  ln -sfn "$PROJECT_DIR/.venv/bin/sg-awg-panel" /usr/local/sbin/sg-awg-panel
 
 if [[ ! -f "$ENV_FILE" ]]; then
   [[ ${#AWGPANEL_ADMIN_PASSWORD} -ge $PASSWORD_MIN_LENGTH ]] \
@@ -156,6 +158,28 @@ path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PYINSTANCE
 fi
 unset AWGPANEL_ADMIN_PASSWORD || true
+
+# A persistent secret is mandatory.  Never let Flask silently create a new
+# secret on every restart because that invalidates sessions and CSRF tokens.
+ENV_FILE_PATH="$ENV_FILE" python3 - <<'PYSECRET'
+from pathlib import Path
+import os
+import secrets
+
+path = Path(os.environ["ENV_FILE_PATH"])
+lines = path.read_text(encoding="utf-8").splitlines()
+values = {}
+for line in lines:
+    if "=" in line and not line.lstrip().startswith("#"):
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("'\"")
+if not values.get("AWGPANEL_SECRET_KEY"):
+    lines.append("AWGPANEL_SECRET_KEY=" + secrets.token_urlsafe(48))
+if not values.get("AWGPANEL_PASSWORD_HASH"):
+    raise SystemExit("AWGPANEL_PASSWORD_HASH is missing; run the full installer or sudo sg-awg-panel password")
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+os.chmod(path, 0o600)
+PYSECRET
 
 # web.env is parsed as data and is never sourced as shell code.
 DB_PATH="$(get_env AWGPANEL_DB /var/lib/sg-awg-panel/panel.db)"
@@ -275,6 +299,9 @@ curl -fsS --max-time 10 "http://127.0.0.1:${BACKEND_PORT}/health" >/dev/null \
   || install_fail "backend панели не отвечает после запуска"
 curl -fsS --max-time 10 "http://127.0.0.1:${PUBLIC_PORT}/health" >/dev/null \
   || install_fail "Nginx не передаёт запросы панели"
+
+run_logged "Проверка SSH-команды управления..." \
+  /usr/local/sbin/sg-awg-panel status
 
 run_logged "Проверка восстановления после reboot..." \
   systemctl restart sg-awg-recovery.service

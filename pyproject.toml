@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sg-awg-panel"
-version = "0.7.0rc3"
+version = "0.7.0rc4"
 description = "Lightweight native web panel for AmneziaWG 2.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 awgpanel = "awgpanel.cli:main"
+sg-awg-panel = "awgpanel.admin_cli:main"
 
 [tool.setuptools]
 packages = ["awgpanel"]

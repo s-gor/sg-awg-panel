@@ -75,7 +75,7 @@ else:
 PY
 )
 case "$STATE:$VERSION" in
-  success:v210|success:v208|success:v207|success:v206|success:v205|success:v204|success:v203|success:v202|success:v201|success:v0.1.0-rc4|success:v0.1.0-rc5-hotfix1|success:v0.1.0-rc5-hotfix2|success:v0.1.0-rc5-hotfix3)
+  success:v0.7.0-RC4|success:v210|success:v208|success:v207|success:v206|success:v205|success:v204|success:v203|success:v202|success:v201|success:v0.1.0-rc4|success:v0.1.0-rc5-hotfix1|success:v0.1.0-rc5-hotfix2|success:v0.1.0-rc5-hotfix3)
     systemctl disable --now \
       sg-awg-routing-schedule.timer sg-awg-routing-lists.timer \
       sg-awg-routing-schedule.service sg-awg-routing-lists.service \

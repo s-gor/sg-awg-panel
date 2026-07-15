@@ -397,10 +397,27 @@ def _json_validation_error_payload(exc: Exception) -> dict[str, object]:
     return payload
 
 
+class CSRFTokenError(Exception):
+    """Raised when a browser submits a stale or foreign panel form."""
+
+
+def _session_cookie_name(secret_key: str) -> str:
+    """Use an install-specific cookie name so panels never share sessions."""
+    suffix = hashlib.sha256(secret_key.encode("utf-8")).hexdigest()[:12]
+    return f"sg_awg_session_{suffix}"
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.environ.get("AWGPANEL_SECRET_KEY") or secrets.token_urlsafe(48)
+    secret_key = os.environ.get("AWGPANEL_SECRET_KEY", "").strip()
+    if not secret_key:
+        raise RuntimeError(
+            "AWGPANEL_SECRET_KEY is missing. Run: sudo sg-awg-panel repair-access"
+        )
+    app.secret_key = secret_key
     app.config.update(
+        SESSION_COOKIE_NAME=os.environ.get("AWGPANEL_SESSION_COOKIE_NAME")
+        or _session_cookie_name(secret_key),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=_bool_env("AWGPANEL_SECURE_COOKIES", False),
@@ -441,10 +458,10 @@ def create_app() -> Flask:
         return token
 
     def require_csrf() -> None:
-        expected = session.get("csrf_token", "")
-        provided = request.form.get("csrf_token", "")
-        if not expected or not secrets.compare_digest(expected, provided):
-            abort(400, "CSRF token mismatch")
+        expected = str(session.get("csrf_token", ""))
+        provided = str(request.form.get("csrf_token", ""))
+        if not expected or not provided or not secrets.compare_digest(expected, provided):
+            raise CSRFTokenError
 
     def issue_json_validation_ticket(scope: str, source: str) -> str:
         """Bind a one-time validation ticket to the exact JSON text."""
@@ -637,7 +654,7 @@ def create_app() -> Flask:
             "layout_identity_label": identity_label,
             "layout_country_code": str((local_node or {}).get("country_code") or ""),
             "layout_country_flag": country_flag((local_node or {}).get("country_code")),
-            "layout_ui_build": "sgawg070rc3",
+            "layout_ui_build": "sgawg070rc4",
         }
 
     def access_rows() -> list[dict[str, object]]:
@@ -655,7 +672,22 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["panel_version"] = __version__
-    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc3"
+    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc4"
+
+    @app.errorhandler(CSRFTokenError)
+    def csrf_token_error(_error):
+        # A stale page, old cookie from a previous installation, or another
+        # panel on the same host must never leave the user at a raw 400 page.
+        session.clear()
+        return redirect(url_for("login", csrf_reset="1"), code=303)
+
+    @app.after_request
+    def disable_sensitive_page_caching(response):
+        if response.mimetype == "text/html":
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     @app.before_request
     def enforce_panel_allowlist():
@@ -689,6 +721,11 @@ def create_app() -> Flask:
             flash("Новый HTTPS-адрес готов. Войдите в панель заново.", "success")
         if request.args.get("updated") == "1":
             flash("Обновление завершено. Войдите в панель заново.", "success")
+        if request.args.get("csrf_reset") == "1":
+            flash(
+                "Сессия браузера устарела и была безопасно сброшена. Введите пароль ещё раз.",
+                "warning",
+            )
         return render_template("login.html")
 
     @app.post("/login")

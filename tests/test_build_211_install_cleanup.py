@@ -29,7 +29,7 @@ def test_green_spinner_is_used_for_logged_install_steps():
 
 def test_self_extracting_installers_are_reproducible_and_do_not_need_unzip():
     builder = read("tools/build-self-extracting-installers.sh")
-    assert "0.7.0-RC3-INSTALL-SG-AWG-PANEL.run" not in builder  # version is derived, not hardcoded
+    assert "0.7.0-RC4-INSTALL-SG-AWG-PANEL.run" not in builder  # version is derived, not hardcoded
     assert "tar -xzf -" in builder
     assert "unzip" not in builder
     assert "install.sh" in builder
@@ -41,7 +41,7 @@ def test_self_extracting_installers_are_reproducible_and_do_not_need_unzip():
 def test_readme_leads_with_no_unzip_installation():
     readme = read("README.md")
     assert "Рекомендуемая установка на новую EC2 без unzip" in readme
-    assert "0.7.0-RC3-INSTALL-SG-AWG-PANEL.run" in readme
-    assert "0.7.0-RC3-INSTALL-SG-AWG-NODE.run" not in readme
-    assert readme.count("sudo bash 0.7.0-RC3-INSTALL-SG-AWG-PANEL.run") >= 2
-    assert "sudo bash 0.7.0-RC3-INSTALL-SG-AWG-PANEL.run" in readme
+    assert "0.7.0-RC4-INSTALL-SG-AWG-PANEL.run" in readme
+    assert "0.7.0-RC4-INSTALL-SG-AWG-NODE.run" not in readme
+    assert readme.count("sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run") >= 2
+    assert "sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run" in readme

@@ -3570,7 +3570,7 @@ def check_for_updates(*, force: bool = False) -> dict[str, object]:
 
 def start_panel_update(version: str) -> dict[str, str]:
     _require_root()
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\d+)?", version):
+    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\d+)?", version, re.I):
         raise ValueError("Некорректная версия обновления")
     if _run(["systemctl", "is-active", "sg-awg-panel-update.service"]).returncode == 0:
         raise AWGPanelError("Обновление уже выполняется")

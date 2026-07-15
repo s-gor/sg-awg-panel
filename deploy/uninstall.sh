@@ -114,3 +114,5 @@ if (( PURGE_AWG == 1 )); then
 else
   echo "[SG-AWG-Panel] [OK] Данные, службы и следы подключения SG-Node удалены. Пакет AmneziaWG оставлен установленным."
 fi
+
+rm -f /usr/local/sbin/sg-awg-panel

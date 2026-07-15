@@ -10,6 +10,6 @@ def test_build_202_removes_standard_page_1080_limit():
     assert "body.ui-standard-page.beta9-ui .page-stack" in css
 
 def test_build_202_identifiers():
-    assert '__version__ = "0.7.0-RC3"' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
-    assert "sgawg070rc3" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.7.0-RC3"' in (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-RC4"' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
+    assert "sgawg070rc4" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
+    assert 'RELEASE_VERSION="v0.7.0-RC4"' in (ROOT / "install.sh").read_text(encoding="utf-8")

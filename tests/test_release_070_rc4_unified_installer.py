@@ -21,7 +21,7 @@ def test_same_full_installer_is_documented_for_controller_and_node():
     readme = read("README.md")
     cluster = read("awgpanel/templates/nodes.html")
     assert "INSTALL-SG-AWG-NODE.run" not in readme
-    assert readme.count("0.7.0-RC3-INSTALL-SG-AWG-PANEL.run") >= 3
+    assert readme.count("0.7.0-RC4-INSTALL-SG-AWG-PANEL.run") >= 3
     assert "тот же файл" in cluster
     assert "Один универсальный установщик" in cluster
     assert "node-install-command" not in cluster

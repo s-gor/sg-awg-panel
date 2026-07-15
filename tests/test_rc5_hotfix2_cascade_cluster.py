@@ -121,8 +121,8 @@ def test_hotfix2_templates_have_explicit_wizard_states_and_actions():
 
 
 def test_release_build_identifiers_are_205():
-    assert "0.7.0-RC3" in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
-    assert "sgawg070rc3" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
+    assert "0.7.0-RC4" in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
+    assert "sgawg070rc4" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
 
 
 def test_controller_serves_node_bootstrap_without_github(tmp_path, monkeypatch):

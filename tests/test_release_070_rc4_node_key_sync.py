@@ -99,8 +99,8 @@ def test_controller_accepts_verified_current_node_key_and_updates_runtime(tmp_pa
     assert nodes.get_node(node_id)["awg_runtime"]["public_key"] == "actual-running-awg-key"
 
 
-def test_connect_script_enrolls_with_real_awg_runtime_and_rc3_version():
+def test_connect_script_enrolls_with_real_awg_runtime_and_rc4_version():
     text = (ROOT / "deploy" / "connect-node.sh").read_text(encoding="utf-8")
-    assert '"agent_version":"0.7.0-RC3"' in text
+    assert '"agent_version":"0.7.0-RC4"' in text
     assert '"awg_runtime":awg_runtime()' in text
     assert '"public_key": public_key[0].strip() if public_key else ""' in text

@@ -36,7 +36,7 @@ sudo bash install.sh
 ## Установка из GitHub
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v210/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.7.0-RC4/install.sh | sudo bash
 ```
 
 Укажите имя сервера, пароль администратора и публичный TCP-порт панели.

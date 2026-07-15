@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-RELEASE_VERSION="v0.7.0-RC3"
+RELEASE_VERSION="v0.7.0-RC4"
 REPOSITORY="s-gor/sg-awg-panel"
 PASSWORD_MIN_LENGTH=8
 PUBLIC_PORT_DEFAULT=62443

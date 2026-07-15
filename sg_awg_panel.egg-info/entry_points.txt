@@ -1,0 +1,3 @@
+[console_scripts]
+awgpanel = awgpanel.cli:main
+sg-awg-panel = awgpanel.admin_cli:main

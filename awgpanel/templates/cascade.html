@@ -191,7 +191,7 @@
       <form method="post" action="{{ url_for('cascade_configure') }}" class="cascade-enrollment-import-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label for="external-cascade-link"><span>Одноразовая ссылка Cascade</span>
-          <textarea id="external-cascade-link" name="enrollment_link" rows="5" required spellcheck="false" placeholder="sg-awg-cascade://v1/..."></textarea>
+          <textarea id="external-cascade-link" name="enrollment_link" rows="3" required spellcheck="false" placeholder="sg-awg-cascade://v1/..."></textarea>
           <small>Скопируйте ссылку целиком. Она временная и используется один раз для настройки этого маршрута.</small>
         </label>
         <div class="cascade-import-note">

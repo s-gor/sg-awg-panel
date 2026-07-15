@@ -2319,3 +2319,28 @@ body.ui-standard-page.beta9-ui .app-footer {
   .clients-data-table .col-route{width:25%}
   .clients-data-table .col-actions{width:15%}
 }
+
+/* RC5 Build Fix 3 — compact standalone Cascade wizard. */
+.cascade-external-card .card-heading{padding-bottom:10px}
+.cascade-external-card .card-heading h2{margin-bottom:4px}
+.cascade-external-card .card-heading p{margin-top:4px;line-height:1.45}
+.cascade-external-card .cascade-role-explainer{gap:10px;margin-bottom:10px}
+.cascade-external-card .cascade-role-explainer>div{gap:3px;padding:10px 13px}
+.cascade-external-card .cascade-external-checklist{gap:7px;margin-bottom:12px}
+.cascade-external-card .cascade-external-checklist>div{padding:8px 10px}
+.cascade-external-card .cascade-external-checklist>div>span{width:25px;height:25px}
+.cascade-external-card .cascade-external-flow{align-items:start;gap:11px;padding-bottom:12px}
+.cascade-external-card .cascade-external-step{gap:10px;padding:15px 16px 15px 56px}
+.cascade-external-card .cascade-external-number{left:14px;top:15px;width:30px;height:30px}
+.cascade-external-card .cascade-external-copy h3{margin:3px 0 4px;font-size:17px}
+.cascade-external-card .cascade-external-copy p{font-size:11.5px;line-height:1.45}
+.cascade-external-card .cascade-external-arrow{font-size:25px}
+.cascade-external-card .cascade-enrollment-import-form{gap:9px}
+.cascade-external-card .cascade-enrollment-import-form textarea{height:78px;min-height:78px;resize:vertical}
+.cascade-external-card .cascade-enrollment-result{gap:8px;padding:11px}
+.cascade-external-card .cascade-enrollment-result textarea{height:72px;min-height:72px}
+.cascade-external-card .cascade-import-note{gap:2px;padding:9px 11px}
+.cascade-external-card .cascade-technical-details{margin-bottom:14px;padding:10px 13px}
+@media(max-width:1050px){
+  .cascade-external-card .cascade-external-flow{align-items:stretch}
+}

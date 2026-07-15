@@ -257,3 +257,27 @@ def test_create_outbound_reuses_lowest_free_slot(tmp_path, monkeypatch):
         )
     created = egress.create_outbound("Second", VALID_CONFIG)
     assert created["id"] == 2
+
+
+def test_outbound_accepts_amnezia_full_tunnel_ipv6_marker():
+    value = VALID_CONFIG.replace(
+        "AllowedIPs = 0.0.0.0/1, 128.0.0.0/1",
+        "AllowedIPs = 0.0.0.0/0, ::/0",
+    )
+    parsed = parse_amneziawg_outbound_config(value)
+    assert parsed.allowed_ips == "0.0.0.0/0"
+    assert "AllowedIPs = 0.0.0.0/0\n" in parsed.config_text
+    assert "::/0" not in parsed.config_text
+
+
+def test_outbound_still_rejects_non_default_ipv6_routes():
+    value = VALID_CONFIG.replace(
+        "AllowedIPs = 0.0.0.0/1, 128.0.0.0/1",
+        "AllowedIPs = 0.0.0.0/0, 2001:db8::/32",
+    )
+    try:
+        parse_amneziawg_outbound_config(value)
+    except ValueError as exc:
+        assert "IPv6-маршруты" in str(exc)
+    else:
+        raise AssertionError("non-default IPv6 route was accepted")

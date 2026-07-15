@@ -150,7 +150,13 @@ def _normalize_allowed_ips(value: str) -> str:
         except ValueError as exc:
             raise ValueError(f"Некорректный AllowedIPs outbound: {part}") from exc
         if network.version != 4:
-            raise ValueError("IPv6 outbound пока не поддерживается")
+            # SG-AWG client profiles deliberately include ::/0 so official
+            # AmneziaVPN recognizes a full tunnel. The outbound runtime is
+            # currently IPv4-only, therefore the harmless IPv6 default route
+            # is accepted on import and omitted from the normalized profile.
+            if str(network) == "::/0":
+                continue
+            raise ValueError("IPv6-маршруты outbound пока не поддерживаются")
         networks.append(network)
     collapsed = list(ipaddress.collapse_addresses(networks))
     if ipaddress.ip_network("0.0.0.0/0") not in collapsed:

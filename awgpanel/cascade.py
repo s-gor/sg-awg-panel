@@ -199,7 +199,7 @@ def create_exit_enrollment(
         "endpoint": parsed.endpoint,
         "config": config_text,
     }
-    return {
+    enrollment = {
         "client": dict(result["client"]),
         "link": CASCADE_LINK_PREFIX + _urlsafe_encode(payload),
         "issued_at": payload["issued_at"],
@@ -208,6 +208,21 @@ def create_exit_enrollment(
         "exit_country_code": payload["exit_country_code"],
         "endpoint": payload["endpoint"],
     }
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE cascade_settings
+            SET exit_enrollment_link=?, exit_enrollment_expires_at=?,
+                exit_enrollment_client_id=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """,
+            (
+                str(enrollment["link"]),
+                str(enrollment["expires_at"]),
+                int(enrollment["client"]["id"]),
+            ),
+        )
+    return enrollment
 
 
 def parse_exit_enrollment(value: object, *, now: datetime | None = None) -> dict[str, Any]:
@@ -256,6 +271,42 @@ def parse_exit_enrollment(value: object, *, now: datetime | None = None) -> dict
     }
 
 
+def _clear_exit_enrollment() -> None:
+    init_db()
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE cascade_settings
+            SET exit_enrollment_link='', exit_enrollment_expires_at='',
+                exit_enrollment_client_id=NULL, updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """
+        )
+
+
+def get_active_exit_enrollment() -> dict[str, Any] | None:
+    """Return the latest still-valid standalone Cascade link.
+
+    The link is stored in the panel database rather than in the browser cookie,
+    so it remains visible after a redirect or page refresh until it expires.
+    """
+    settings = get_cascade_settings()
+    link = str(settings.get("exit_enrollment_link") or "").strip()
+    client_id = int(settings.get("exit_enrollment_client_id") or 0)
+    if not link or not client_id:
+        return None
+    try:
+        parsed = parse_exit_enrollment(link)
+    except (ValueError, AWGPanelError):
+        _clear_exit_enrollment()
+        return None
+    service = get_exit_service_client()
+    if not service or int(service.get("id") or 0) != client_id:
+        _clear_exit_enrollment()
+        return None
+    return {**parsed, "link": link, "client": service}
+
+
 def configure_cascade_from_link(value: object) -> dict[str, Any]:
     enrollment = parse_exit_enrollment(value)
     settings = configure_cascade(
@@ -269,7 +320,9 @@ def configure_cascade_from_link(value: object) -> dict[str, Any]:
 
 
 def remove_exit_service_client() -> list[dict[str, Any]]:
-    return delete_awg_service_clients(CASCADE_SYSTEM_ROLE)
+    removed = delete_awg_service_clients(CASCADE_SYSTEM_ROLE)
+    _clear_exit_enrollment()
+    return removed
 
 
 def configure_cascade(

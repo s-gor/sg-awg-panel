@@ -109,6 +109,7 @@ from .cascade import (
     create_exit_service_client,
     disable_cascade,
     get_cascade_settings,
+    get_active_exit_enrollment,
     get_exit_service_client,
     remove_exit_service_client,
     test_cascade,
@@ -3495,6 +3496,12 @@ def create_app() -> Flask:
         links = list_cascade_links(include_disabled=False)
         external = get_cascade_settings()
         exit_service = get_exit_service_client()
+        if not one_time_link:
+            active_enrollment = get_active_exit_enrollment()
+            if active_enrollment:
+                one_time_link = str(active_enrollment.get("link") or "")
+                one_time_enrollment = active_enrollment
+                one_time_client = active_enrollment.get("client")
         active_count = sum(1 for item in links if item.get("state") == "active")
         if external.get("enabled"):
             active_count += 1

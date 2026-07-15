@@ -327,6 +327,9 @@ CREATE TABLE IF NOT EXISTS cascade_settings (
     last_error TEXT NOT NULL DEFAULT '',
     last_client_test_at TEXT,
     last_client_error TEXT NOT NULL DEFAULT '',
+    exit_enrollment_link TEXT NOT NULL DEFAULT '',
+    exit_enrollment_expires_at TEXT NOT NULL DEFAULT '',
+    exit_enrollment_client_id INTEGER,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -581,6 +584,18 @@ def _migrate(con: sqlite3.Connection) -> None:
     if "last_client_error" not in cascade_columns:
         con.execute(
             "ALTER TABLE cascade_settings ADD COLUMN last_client_error TEXT NOT NULL DEFAULT ''"
+        )
+    if "exit_enrollment_link" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN exit_enrollment_link TEXT NOT NULL DEFAULT ''"
+        )
+    if "exit_enrollment_expires_at" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN exit_enrollment_expires_at TEXT NOT NULL DEFAULT ''"
+        )
+    if "exit_enrollment_client_id" not in cascade_columns:
+        con.execute(
+            "ALTER TABLE cascade_settings ADD COLUMN exit_enrollment_client_id INTEGER"
         )
 
     node_columns = _columns(con, "cluster_nodes")

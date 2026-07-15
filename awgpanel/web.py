@@ -1486,7 +1486,8 @@ def create_app() -> Flask:
         profile_title = str(panel["access_profile_title"] or "SG-AWG").strip()
         instance_name = str(panel["instance_name"] or "SG-AWG-Panel").strip()
         profile_name = str(client["name"]) if instance_name.casefold() == "sg-awg-panel" else f"{instance_name}/{client['name']}"
-        filename = f"{_safe_filename(f'{profile_title}-{client["name"]}')}.conf"
+        filename_base = _safe_filename(f"{profile_title}-{client['name']}")
+        filename = f"{filename_base}.conf"
         response = Response(config_text, mimetype="text/plain; charset=utf-8")
         response.headers["Content-Disposition"] = _inline_content_disposition(filename)
         return _profile_response_headers(response, profile_name=profile_name, filename=filename)

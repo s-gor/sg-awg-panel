@@ -12,11 +12,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       AWGPANEL_SECRET_KEY: "github-actions-test-secret"
-
     steps:
       - uses: actions/checkout@v4
 
@@ -57,7 +55,9 @@ jobs:
         run: python -m compileall -q awgpanel node_agent tests
 
       - name: Run tests
-        run: python -m pytest -q
+        # RC4 tests exercise root-only installer bridges and the privileged
+        # default AWG UDP port 585, matching the production service runtime.
+        run: sudo -E "$(command -v python)" -m pytest -q
 
       - name: Check shell syntax
         run: find . -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n

@@ -69,5 +69,5 @@
   {% else %}<div class="beta9-empty"><h3>Копии не найдены</h3><p>Измените фильтр или создайте новую резервную копию.</p></div>{% endif %}
 </section>
 
-<details class="beta9-panel beta9-technical-details"><summary>Как проверяются резервные копии</summary><div class="beta9-technical-grid"><div><span>SQLite</span><strong>PRAGMA integrity_check</strong></div><div><span>AWG</span><strong>Наличие awg0.conf</strong></div><div><span>Файлы</span><strong>Размер и SHA-256</strong></div><div><span>Восстановление</span><strong>Только из проверенной копии</strong></div></div></details>
+<details class="beta9-panel beta9-technical-details"><summary>Как проверяются резервные копии</summary><div class="beta9-technical-grid"><div><span>SQLite</span><strong>PRAGMA integrity_check</strong></div><div><span>AWG</span><strong>Структура awg0.conf</strong></div><div><span>Manifest</span><strong>metadata и все файлы · SHA-256</strong></div><div><span>Пути</span><strong>Без symlink и выхода из копии</strong></div><div><span>Состав</span><strong>Clients, ключи, Cluster, Agent, Nginx/HTTPS</strong></div><div><span>Восстановление</span><strong>Только из проверенной копии</strong></div></div></details>
 {% endblock %}

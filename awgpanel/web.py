@@ -123,6 +123,7 @@ from .cluster_cascade import (
     reconcile_all_cascades,
     test_cascade_link as test_cluster_cascade_link,
 )
+from .node_clients import queue_initial_pool_sync
 from .node_manager import (
     authenticate_agent,
     claim_next_job,
@@ -654,7 +655,7 @@ def create_app() -> Flask:
             "layout_identity_label": identity_label,
             "layout_country_code": str((local_node or {}).get("country_code") or ""),
             "layout_country_flag": country_flag((local_node or {}).get("country_code")),
-            "layout_ui_build": "sgawg070rc4",
+            "layout_ui_build": "sgawg070rc5",
         }
 
     def access_rows() -> list[dict[str, object]]:
@@ -672,7 +673,7 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["panel_version"] = __version__
-    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc4"
+    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc5"
 
     @app.errorhandler(CSRFTokenError)
     def csrf_token_error(_error):
@@ -2602,7 +2603,7 @@ def create_app() -> Flask:
         require_csrf()
         try:
             backup = create_manual_backup()
-            flash(f"Резервная копия создана: {backup.name}", "success")
+            flash(f"Резервная копия создана и проверена: {backup.name}", "success")
         except (PermissionError, AWGPanelError, OSError) as exc:
             flash(str(exc), "error")
         return redirect(url_for("backups_page"))
@@ -3239,7 +3240,10 @@ def create_app() -> Flask:
         ensure_controller_identity(panel)
         cleanup_duplicate_pending_nodes()
         rows, hidden_duplicate_count = collapse_duplicate_nodes(list_nodes())
-        all_clients = get_awg_overview()["clients"]
+        # Cluster needs only the client registry. Avoid the broader server
+        # overview here: it performs public-IP discovery and made this local
+        # page depend on external network services.
+        all_clients = [dict(row) for row in list_awg_clients()]
         for item in rows:
             item["client_count"] = sum(
                 1 for client in all_clients
@@ -3436,6 +3440,10 @@ def create_app() -> Flask:
         try:
             node = authenticate_agent(slug, agent_bearer_token())
             updated = heartbeat(int(node["id"]), payload)
+            try:
+                queue_initial_pool_sync(int(node["id"]))
+            except (ValueError, AWGPanelError):
+                pass
             return json_response({"ok": True, "state": updated["effective_state"]})
         except (ValueError, PermissionError, AWGPanelError) as exc:
             return json_response({"ok": False, "message": str(exc)}, 403)

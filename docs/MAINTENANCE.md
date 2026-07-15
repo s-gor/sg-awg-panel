@@ -8,81 +8,65 @@
 sudo sg-awg-panel
 ```
 
-Она открывает нумерованное меню для состояния служб, диагностики, пароля,
-сессий, Clients, Cluster, Cascade, backup/restore, обновления и uninstall.
-
-Ключевые пункты:
+Меню содержит 14 действий без дублирующих «полной диагностики», старых ошибок и восстановления доступа. Основные пункты:
 
 ```text
- 6. Сменить пароль администратора
- 9. Проверить клиентов и подключения
-10. Проверить Cluster и SG-Node
-11. Проверить Cascade
-16. Проверить и установить обновление
-17. Полностью удалить SG-AWG-Panel
+ 4. Сменить пароль администратора
+ 6. Проверить клиентов и подключения
+ 7. Проверить Cluster и SG-Node
+ 8. Проверить Cascade
+ 9. Создать резервную копию
+10. Проверить резервную копию
+11. Восстановить резервную копию
+13. Проверить и установить обновление
+14. Полностью удалить SG-AWG-Panel
 ```
 
-Команды без меню:
+Прямые команды:
 
 ```bash
 sudo sg-awg-panel status
 sudo sg-awg-panel password
 sudo sg-awg-panel sessions
-sudo sg-awg-panel repair-access
 sudo sg-awg-panel clients
 sudo sg-awg-panel cluster
 sudo sg-awg-panel cascade
-sudo sg-awg-panel errors
-sudo sg-awg-panel diagnostics
 sudo sg-awg-panel backup
 sudo sg-awg-panel backups
+sudo sg-awg-panel verify-backup
 sudo sg-awg-panel restore
 sudo sg-awg-panel update
 sudo sg-awg-panel uninstall
 ```
 
-`password`, `sessions` и `repair-access` завершают старые браузерные сессии.
-Пароль вводится скрыто и не попадает в историю shell.
+Аварийная команда `sudo sg-awg-panel repair-access` остаётся доступна напрямую, но не показывается в обычном меню.
 
 ## Резервные копии
 
-Перед восстановлением:
-
-1. убедитесь, что выбран нужный архив;
-2. сохраните текущие клиентские конфигурации;
-3. после восстановления проверьте панель, AWG Server и реального клиента.
-
-Создать копию:
+Веб-панель и SSH используют один формат и один каталог. Копия содержит базу, клиентов и ключи, awg0, настройки Panel/Agent, управляемые Nginx/HTTPS-файлы, Traffic Rules и manifest. Она не копирует всю Ubuntu, пакеты, чужие конфигурации и systemd-журналы.
 
 ```bash
 sudo sg-awg-panel backup
-```
-
-Показать копии:
-
-```bash
 sudo sg-awg-panel backups
-```
-
-Восстановить:
-
-```bash
+sudo sg-awg-panel verify-backup
 sudo sg-awg-panel restore
 ```
+
+После создания и перед восстановлением автоматически проверяются безопасные пути, обязательные файлы, SHA-256, совместимость версии, SQLite `integrity_check` и JSON. При ошибке восстановление блокируется.
 
 ## Обновление
 
 Один и тот же updater используется на Controller и SG-Node:
 
 ```bash
-sudo bash 0.7.0-RC4-UPDATE-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC5-UPDATE-SG-AWG-PANEL.run
 ```
 
 Из распакованного ZIP:
 
 ```bash
-unzip 0.7.0-RC4-AWG-Panel.zip
-cd 0.7.0-RC4-AWG-Panel
+unzip 0.7.0-RC5-AWG-Panel.zip
+cd 0.7.0-RC5-AWG-Panel
 sudo bash update.sh
 ```
 

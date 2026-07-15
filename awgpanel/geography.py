@@ -82,7 +82,7 @@ def _json_request(url: str, timeout: float) -> dict[str, Any]:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     request = urllib.request.Request(
         url,
-        headers={"Accept": "application/json", "User-Agent": "SG-AWG-Panel/0.7.0-RC4"},
+        headers={"Accept": "application/json", "User-Agent": "SG-AWG-Panel/0.7.0-RC5"},
     )
     with opener.open(request, timeout=timeout) as response:  # nosec B310
         payload = response.read(4096).decode("utf-8", "replace")

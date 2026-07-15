@@ -2,7 +2,7 @@
 
 **Самостоятельная веб-панель для установки и управления AmneziaWG 2.0 на одном или нескольких Ubuntu-серверах.**
 
-![Version](https://img.shields.io/badge/version-v0.7.0--RC4-3b82f6)
+![Version](https://img.shields.io/badge/version-v0.7.0--RC5-3b82f6)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04-E95420?logo=ubuntu&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-2563EB)
@@ -17,22 +17,18 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 
 Пользовательский трафик проходит через AmneziaWG напрямую. Xray, VLESS, Reality и отдельная прокси-цепочка для работы соединения не требуются.
 
-> Текущая версия: `v0.7.0-RC4`.
+> Текущая версия: `v0.7.0-RC5`.
 
-## Главное в RC4
+## Главное в RC5
 
-- один полный установщик для любой EC2;
-- один updater для Controller и SG-Node;
-- любая установленная панель сначала остаётся самостоятельной и при необходимости подключается к выбранному Controller;
-- исправлена синхронизация реального ключа работающего `awg0` на SG-Node;
-- Controller учитывает фактически занятые VPN-адреса на Node;
-- защита от двух peers с одинаковым `AllowedIPs`;
-- исправлен `CSRF token mismatch` после чистой установки или повторного открытия другой панели;
-- каждая установка использует собственное имя cookie и постоянный secret;
-- добавлено полноценное SSH-меню администратора;
-- сохранён классический тёмный интерфейс;
-- Cluster, Clients и Cascade включают все исправления сборок 207–211;
-- GitHub Actions изолирован от боевого каталога `/var/lib/sg-awg-panel`.
+- постоянные отдельные VPN-пулы: Controller `10.77.0.0/24`, SG-Node 1–12 — `10.77.1.0/24` … `10.77.12.0/24`;
+- автоматическая миграция существующих Node и их клиентов в назначенный пул;
+- точная строка `AllowedIPs = 0.0.0.0/0, ::/0` для совместимости с раздельным туннелированием AmneziaVPN;
+- единые резервные копии для веб-панели и SSH с manifest, SHA-256, SQLite `integrity_check` и обязательной проверкой;
+- упрощённое SSH-меню без дублирующих пунктов и отдельное действие «Проверить резервную копию»;
+- установка, обновление и полное удаление напрямую из GitHub `main`, без обязательного Release или тега;
+- один полный установщик для Controller и SG-Node, один updater и скрытая аварийная команда `repair-access`;
+- сохранены исправления CSRF, синхронизация реального ключа `awg0`, классический интерфейс и безопасные задания Agent.
 
 ## Возможности
 
@@ -115,28 +111,21 @@ sudo sg-awg-panel
 Откроется единое меню:
 
 ```text
-╭────────────────────────────────────────────────────────────────────╮
-│ SG-AWG-PANEL 0.7.0-RC4 · УПРАВЛЕНИЕ СЕРВЕРОМ                      │
-├────────────────────────────────────────────────────────────────────┤
-│  1. Состояние панели и адрес                                      │
-│  2. Показать только адрес панели                                  │
-│  3. Перезапустить веб-панель                                      │
-│  4. Перезапустить Panel, AWG, Nginx и Agent                       │
-│  5. Полная диагностика системы                                    │
-│  6. Сменить пароль администратора                                 │
-│  7. Сбросить браузерные сессии и CSRF                             │
-│  8. Восстановить доступ к панели                                  │
-│  9. Проверить клиентов и подключения                              │
-│ 10. Проверить Cluster и SG-Node                                   │
-│ 11. Проверить Cascade                                             │
-│ 12. Показать последние ошибки                                     │
-│ 13. Создать резервную копию                                       │
-│ 14. Восстановить резервную копию                                  │
-│ 15. Переименовать сервер                                          │
-│ 16. Проверить и установить обновление                             │
-│ 17. Полностью удалить SG-AWG-Panel                                │
-│  0. Выход                                                         │
-╰────────────────────────────────────────────────────────────────────╯
+ 1. Состояние панели и адрес
+ 2. Перезапустить веб-панель
+ 3. Перезапустить Panel, AWG, Nginx и Agent
+ 4. Сменить пароль администратора
+ 5. Сбросить браузерные сессии и CSRF
+ 6. Проверить клиентов и подключения
+ 7. Проверить Cluster и SG-Node
+ 8. Проверить Cascade
+ 9. Создать резервную копию
+10. Проверить резервную копию
+11. Восстановить резервную копию
+12. Переименовать сервер
+13. Проверить и установить обновление
+14. Полностью удалить SG-AWG-Panel
+ 0. Выход
 ```
 
 Основные действия также доступны напрямую:
@@ -145,11 +134,10 @@ sudo sg-awg-panel
 sudo sg-awg-panel status
 sudo sg-awg-panel password
 sudo sg-awg-panel sessions
-sudo sg-awg-panel repair-access
 sudo sg-awg-panel clients
 sudo sg-awg-panel cluster
 sudo sg-awg-panel cascade
-sudo sg-awg-panel diagnostics
+sudo sg-awg-panel verify-backup
 ```
 
 ## Требования
@@ -165,18 +153,29 @@ sudo sg-awg-panel diagnostics
 
 Установщик и полный uninstall рассчитаны на выделенный сервер, где AmneziaWG, Nginx и Certbot не обслуживают другие проекты.
 
+## Установка прямо из GitHub main
+
+На чистой Ubuntu 22.04/24.04:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/main/install.sh -o /tmp/install-sg-awg-panel.sh
+sudo bash /tmp/install-sg-awg-panel.sh
+```
+
+Установщик проверяет TCP `18080`, выбранный публичный TCP-порт и стандартный UDP `585`, затем скачивает полное текущее дерево `main`.
+
 ## Рекомендуемая установка на новую EC2 без unzip
 
 На Controller и на будущей SG-Node используется один и тот же файл:
 
 ```text
-0.7.0-RC4-INSTALL-SG-AWG-PANEL.run
+0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 ```
 
 Запуск:
 
 ```bash
-sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 ```
 
 `unzip`, предварительный `apt install`, Git и отдельный Node installer не требуются. Установщик показывает этапы, зелёную вертушку и время, а технический вывод пишет в журнал:
@@ -188,7 +187,7 @@ sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run
 На второй EC2 запустите **тот же файл**:
 
 ```bash
-sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 ```
 
 Обе панели сначала самостоятельны. Затем в разделе Cluster выберите Controller и выполните показанную команду подключения на второй панели.
@@ -196,8 +195,8 @@ sudo bash 0.7.0-RC4-INSTALL-SG-AWG-PANEL.run
 ## Установка из ZIP
 
 ```bash
-unzip 0.7.0-RC4-AWG-Panel.zip
-cd 0.7.0-RC4-AWG-Panel
+unzip 0.7.0-RC5-AWG-Panel.zip
+cd 0.7.0-RC5-AWG-Panel
 sudo bash install.sh
 ```
 
@@ -226,20 +225,20 @@ sudo sg-awg-panel repair-access
 Для обеих EC2 используется один updater:
 
 ```bash
-sudo bash 0.7.0-RC4-UPDATE-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC5-UPDATE-SG-AWG-PANEL.run
 ```
 
 Из распакованного ZIP:
 
 ```bash
-unzip 0.7.0-RC4-AWG-Panel.zip
-cd 0.7.0-RC4-AWG-Panel
+unzip 0.7.0-RC5-AWG-Panel.zip
+cd 0.7.0-RC5-AWG-Panel
 sudo bash update.sh
 ```
 
 Updater создаёт страховочную копию, сохраняет Clients, ключи, Cluster, Cascade, настройки и подключение Agent. При ошибке выполняется автоматический откат.
 
-Обновление также доступно в `Maintenance → Updates` и через пункт 16 SSH-меню.
+Обновление также доступно в `Maintenance → Updates` и через пункт 13 SSH-меню.
 
 ## Полное удаление
 
@@ -252,7 +251,7 @@ sudo sg-awg-panel uninstall
 Или напрямую из GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/v0.7.0-RC4/uninstall.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/s-gor/sg-awg-panel/main/uninstall.sh | sudo bash
 ```
 
 Подтверждение:
@@ -267,7 +266,7 @@ DELETE SG-AWG-PANEL COMPLETELY
 sudo reboot
 ```
 
-## Скриншоты RC4
+## Скриншоты RC5
 
 После финального live-теста изображения добавляются в `docs/screenshots/`. Подготовлены единые имена и размеры для System, Clients, Cluster, Cascade, SSH-меню и установщика. См. [инструкцию для скриншотов](docs/screenshots/README.md).
 
@@ -290,7 +289,7 @@ sudo reboot
 
 ## Статус релиза
 
-`0.7.0-RC4` — Release Candidate. Перед постоянным использованием рекомендуется живой прогон на двух чистых EC2:
+`0.7.0-RC5` — Release Candidate. Перед постоянным использованием рекомендуется живой прогон на двух чистых EC2:
 
 1. одинаковая установка на обе EC2;
 2. локальный клиент на каждой панели;

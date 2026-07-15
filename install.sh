@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-RELEASE_VERSION="v0.7.0-RC4"
+RELEASE_VERSION="v0.7.0-RC5"
 REPOSITORY="s-gor/sg-awg-panel"
 PASSWORD_MIN_LENGTH=8
 PUBLIC_PORT_DEFAULT=62443
@@ -167,6 +167,10 @@ cleanup_stale_panel_residue
 if command -v ss >/dev/null 2>&1 && [[ -n "$(ss -H -ltn 'sport = :18080' 2>/dev/null || true)" ]]; then
   fail "backend TCP 18080 занят посторонним процессом; освободите порт и повторите установку"
 fi
+if command -v ss >/dev/null 2>&1 && [[ -n "$(ss -H -lun 'sport = :585' 2>/dev/null || true)" ]]; then
+  ss -H -lunp 'sport = :585' 2>/dev/null >&2 || true
+  fail "UDP-порт 585 уже занят; освободите стандартный порт AmneziaWG и повторите установку"
+fi
 [[ -r /dev/tty && -w /dev/tty ]] || fail "для безопасного ввода параметров требуется обычная SSH-сессия"
 
 printf '\nSG-AWG-Panel %s — чистая или повторная установка после полного удаления\n\n' "$RELEASE_VERSION" >/dev/tty
@@ -231,10 +235,10 @@ else
       apt-get -o Dpkg::Use-Pty=0 install -y -qq curl ca-certificates tar
   fi
   TMP_DIR="$(mktemp -d /tmp/sg-awg-panel-install.XXXXXX)"
-  ARCHIVE_URL="https://github.com/${REPOSITORY}/archive/refs/tags/${RELEASE_VERSION}.tar.gz"
-  info "Загрузка ${RELEASE_VERSION} из GitHub..."
+  ARCHIVE_URL="https://github.com/${REPOSITORY}/archive/refs/heads/main.tar.gz"
+  info "Загрузка ${RELEASE_VERSION} из GitHub main..."
   curl -fsSL --retry 3 --connect-timeout 15 "$ARCHIVE_URL" -o "$TMP_DIR/source.tar.gz" \
-    || fail "не удалось загрузить ${RELEASE_VERSION}"
+    || fail "не удалось загрузить GitHub main"
   tar -xzf "$TMP_DIR/source.tar.gz" -C "$TMP_DIR" || fail "не удалось распаковать архив"
   SOURCE_DIR="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'sg-awg-panel-*' | head -n 1)"
 fi

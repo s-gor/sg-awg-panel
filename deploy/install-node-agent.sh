@@ -36,7 +36,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/etc/sg-awg-node /var/lib/sg-awg-node /run /etc/amnezia/amneziawg
+ReadWritePaths=/etc/sg-awg-node /var/lib/sg-awg-node /var/lib/sg-awg-panel /run /etc/amnezia/amneziawg
 
 [Install]
 WantedBy=multi-user.target

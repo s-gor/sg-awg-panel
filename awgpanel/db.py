@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import secrets
 import sqlite3
@@ -219,6 +220,8 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     role TEXT NOT NULL DEFAULT 'node' CHECK (role IN ('controller', 'node')),
     state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'online', 'offline', 'error', 'disabled')),
     is_local INTEGER NOT NULL DEFAULT 0 CHECK (is_local IN (0, 1)),
+    node_slot INTEGER CHECK (node_slot BETWEEN 0 AND 12),
+    vpn_network TEXT NOT NULL DEFAULT '',
     public_host TEXT NOT NULL DEFAULT '',
     public_port INTEGER NOT NULL DEFAULT 585 CHECK (public_port BETWEEN 1 AND 65535),
     enrollment_token_hash TEXT NOT NULL DEFAULT '',
@@ -255,6 +258,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_local
 ON cluster_nodes(is_local) WHERE is_local=1;
 CREATE INDEX IF NOT EXISTS idx_cluster_nodes_state
 ON cluster_nodes(state, last_seen_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_slot
+ON cluster_nodes(node_slot) WHERE node_slot IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_vpn_network
+ON cluster_nodes(vpn_network) WHERE vpn_network <> '';
+
+CREATE TABLE IF NOT EXISTS cluster_pool_slots (
+    slot INTEGER PRIMARY KEY CHECK (slot BETWEEN 0 AND 12),
+    vpn_network TEXT NOT NULL UNIQUE,
+    node_id INTEGER UNIQUE REFERENCES cluster_nodes(id) ON DELETE SET NULL,
+    allocated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retired_at TEXT
+);
 
 CREATE TABLE IF NOT EXISTS node_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -568,6 +583,10 @@ def _migrate(con: sqlite3.Connection) -> None:
         )
 
     node_columns = _columns(con, "cluster_nodes")
+    if "node_slot" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN node_slot INTEGER")
+    if "vpn_network" not in node_columns:
+        con.execute("ALTER TABLE cluster_nodes ADD COLUMN vpn_network TEXT NOT NULL DEFAULT ''")
     if "awg_runtime_json" not in node_columns:
         con.execute("ALTER TABLE cluster_nodes ADD COLUMN awg_runtime_json TEXT NOT NULL DEFAULT '{}'")
     if "country_code" not in node_columns:
@@ -577,6 +596,104 @@ def _migrate(con: sqlite3.Connection) -> None:
     if "country_updated_at" not in node_columns:
         con.execute("ALTER TABLE cluster_nodes ADD COLUMN country_updated_at TEXT")
     con.execute("UPDATE cluster_nodes SET public_port=585 WHERE is_local=0 AND public_port<>585")
+
+    # RC5: Controller and up to twelve SG-Node servers receive permanent,
+    # non-overlapping /24 pools. A retired slot remains reserved so a future
+    # node never silently inherits addresses from a removed server.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cluster_pool_slots (
+            slot INTEGER PRIMARY KEY CHECK (slot BETWEEN 0 AND 12),
+            vpn_network TEXT NOT NULL UNIQUE,
+            node_id INTEGER UNIQUE REFERENCES cluster_nodes(id) ON DELETE SET NULL,
+            allocated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            retired_at TEXT
+        )
+        """
+    )
+    local = con.execute(
+        "SELECT id FROM cluster_nodes WHERE is_local=1 ORDER BY id LIMIT 1"
+    ).fetchone()
+    local_slot = 0
+    local_network = "10.77.0.0/24"
+    agent_env = Path(os.environ.get("SG_AWG_NODE_ENV", "/etc/sg-awg-node/agent.env"))
+    if agent_env.is_file():
+        configured_network_row = con.execute(
+            "SELECT server_network FROM awg_settings WHERE id=1"
+        ).fetchone()
+        configured_network = str(configured_network_row["server_network"] or "") if configured_network_row else ""
+        try:
+            parsed_network = ipaddress.ip_network(configured_network, strict=True)
+            candidate = int(str(parsed_network.network_address).split(".")[2])
+            if parsed_network.prefixlen == 24 and 1 <= candidate <= 12 and configured_network == f"10.77.{candidate}.0/24":
+                local_slot = candidate
+                local_network = configured_network
+        except ValueError:
+            pass
+    if local is not None:
+        local_id = int(local["id"])
+        con.execute("DELETE FROM cluster_pool_slots WHERE node_id=?", (local_id,))
+        con.execute(
+            "UPDATE cluster_nodes SET node_slot=?, vpn_network=? WHERE id=?",
+            (local_slot, local_network, local_id),
+        )
+        con.execute(
+            "INSERT INTO cluster_pool_slots(slot,vpn_network,node_id,retired_at) "
+            "VALUES(?,?,?,NULL) "
+            "ON CONFLICT(slot) DO UPDATE SET vpn_network=excluded.vpn_network, "
+            "node_id=excluded.node_id, retired_at=NULL",
+            (local_slot, local_network, local_id),
+        )
+
+    # Keep valid existing assignments; allocate only slots that have never
+    # appeared in cluster_pool_slots. This intentionally does not reuse retired
+    # slots without a future explicit administrator action.
+    for row in con.execute(
+        "SELECT id,node_slot,vpn_network FROM cluster_nodes WHERE is_local=0 ORDER BY id"
+    ).fetchall():
+        node_id = int(row["id"])
+        try:
+            slot = int(row["node_slot"] or 0)
+        except (TypeError, ValueError):
+            slot = 0
+        expected = f"10.77.{slot}.0/24" if 1 <= slot <= 12 else ""
+        conflict = None
+        if expected:
+            conflict = con.execute(
+                "SELECT node_id FROM cluster_pool_slots WHERE slot=? AND node_id<>?",
+                (slot, node_id),
+            ).fetchone()
+        if not expected or conflict is not None:
+            slot = 0
+            expected = ""
+            for candidate in range(1, 13):
+                if con.execute(
+                    "SELECT 1 FROM cluster_pool_slots WHERE slot=?", (candidate,)
+                ).fetchone() is None:
+                    slot = candidate
+                    expected = f"10.77.{candidate}.0/24"
+                    break
+        if slot:
+            con.execute(
+                "UPDATE cluster_nodes SET node_slot=?, vpn_network=? WHERE id=?",
+                (slot, expected, node_id),
+            )
+            con.execute(
+                "INSERT INTO cluster_pool_slots(slot,vpn_network,node_id,retired_at) "
+                "VALUES(?,?,?,NULL) "
+                "ON CONFLICT(slot) DO UPDATE SET node_id=excluded.node_id, "
+                "vpn_network=excluded.vpn_network, retired_at=NULL",
+                (slot, expected, node_id),
+            )
+
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_slot "
+        "ON cluster_nodes(node_slot) WHERE node_slot IS NOT NULL"
+    )
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_cluster_nodes_vpn_network "
+        "ON cluster_nodes(vpn_network) WHERE vpn_network<>''"
+    )
     if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='node_profiles'").fetchone():
         con.execute("DROP TABLE node_profiles")
     con.execute(
@@ -611,6 +728,60 @@ def _migrate(con: sqlite3.Connection) -> None:
     for name, definition in migrations.items():
         if name not in client_columns:
             con.execute(f"ALTER TABLE awg_clients ADD COLUMN {name} {definition}")
+
+    # Normalize every ordinary client into the pool permanently assigned to its
+    # server before enforcing uniqueness. Service peers used by Cascade keep
+    # their explicit tunnel addresses. Preserve a valid host number when
+    # possible; otherwise allocate the first free .2-.254 address.
+    servers = [(None, local_network)]
+    servers.extend(
+        (int(row["id"]), str(row["vpn_network"]))
+        for row in con.execute(
+            "SELECT id,vpn_network FROM cluster_nodes "
+            "WHERE is_local=0 AND vpn_network<>'' ORDER BY node_slot,id"
+        ).fetchall()
+    )
+    for server_id, network_text in servers:
+        network = ipaddress.ip_network(network_text, strict=True)
+        if server_id is None:
+            rows = con.execute(
+                "SELECT id,address FROM awg_clients "
+                "WHERE node_id IS NULL AND COALESCE(system_role,'')='' "
+                "AND deployment_state<>'deleting' ORDER BY id"
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT id,address FROM awg_clients "
+                "WHERE node_id=? AND COALESCE(system_role,'')='' "
+                "AND deployment_state<>'deleting' ORDER BY id",
+                (server_id,),
+            ).fetchall()
+        used: set[int] = set()
+        for row in rows:
+            preferred = 0
+            try:
+                preferred = int(ipaddress.ip_interface(str(row["address"])).ip) & 0xFF
+            except ValueError:
+                pass
+            host = preferred if 2 <= preferred <= 254 and preferred not in used else 0
+            if not host:
+                host = next((candidate for candidate in range(2, 255) if candidate not in used), 0)
+            if not host:
+                raise sqlite3.IntegrityError(f"VPN-пул {network_text} исчерпан")
+            used.add(host)
+            desired = f"{network.network_address + host}/32"
+            if str(row["address"]) != desired:
+                con.execute(
+                    "UPDATE awg_clients SET address=?, deployment_state=CASE "
+                    "WHEN node_id IS NULL THEN deployment_state ELSE 'queued' END, "
+                    "deployment_error='', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (desired, int(row["id"])),
+                )
+
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_awg_clients_server_address "
+        "ON awg_clients(COALESCE(node_id,0), address) WHERE deployment_state<>'deleting'"
+    )
 
     _migrate_traffic_rules_gateway_mode(con)
 

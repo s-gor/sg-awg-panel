@@ -171,7 +171,7 @@ Endpoint = 203.0.113.20:585
 
 def test_204_agent_has_explicit_cascade_modes_and_standard_awg_port():
     agent = (ROOT / "node_agent/agent.py").read_text(encoding="utf-8")
-    assert 'AGENT_VERSION = "0.7.0-RC4"' in agent
+    assert 'AGENT_VERSION = "0.7.0-RC5"' in agent
     assert 'CASCADE_INTERFACE = "sgcascade"' in agent
     assert 'mode == "configure_cascade"' in agent
     assert 'mode == "disable_cascade"' in agent

@@ -65,7 +65,7 @@ def test_udp_probe_reports_busy_new_port():
         sock.close()
 
 
-def test_network_change_renumbers_clients_and_server_mode(tmp_path, monkeypatch):
+def test_assigned_controller_pool_cannot_be_changed_from_server_settings(tmp_path, monkeypatch):
     prepare(tmp_path, monkeypatch)
     keys = iter([
         ("server-private", "server-public"),
@@ -79,14 +79,11 @@ def test_network_change_renumbers_clients_and_server_mode(tmp_path, monkeypatch)
     core.configure_awg(endpoint_host="203.0.113.10", external_interface="ens5")
     first = core.add_awg_client("One")
     second = core.add_awg_client("Two")
-    core.update_awg_client_traffic(first["id"], "10.77.0.0/24")
-    core.configure_awg(
-        endpoint_host="203.0.113.10",
-        external_interface="ens5",
-        server_network="10.88.0.0/24",
-    )
-    first = core.find_awg_client(first["id"])
-    second = core.find_awg_client(second["id"])
-    assert first["address"] == "10.88.0.2/32"
-    assert second["address"] == "10.88.0.3/32"
-    assert first["allowed_ips"] == "10.88.0.0/24"
+    with pytest.raises(ValueError, match="закреплён"):
+        core.configure_awg(
+            endpoint_host="203.0.113.10",
+            external_interface="ens5",
+            server_network="10.88.0.0/24",
+        )
+    assert core.find_awg_client(first["id"])["address"] == "10.77.0.2/32"
+    assert core.find_awg_client(second["id"])["address"] == "10.77.0.3/32"

@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "0.7.0-RC4"
+AGENT_VERSION = "0.7.0-RC5"
 ENV_FILE = Path(os.environ.get("SG_AWG_NODE_ENV", "/etc/sg-awg-node/agent.env"))
 AWG_CONFIG_PATH = Path("/etc/amnezia/amneziawg/awg0.conf")
 NODE_TRAFFIC_PATH = Path("/etc/sg-awg-node/traffic.nft")
@@ -159,7 +159,7 @@ def _country_code(public_ipv4: str) -> str:
     )
     for url in urls:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "SG-AWG-Node-Agent/0.7.0-RC4", "Accept": "application/json"})
+            req = urllib.request.Request(url, headers={"User-Agent": "SG-AWG-Node-Agent/0.7.0-RC5", "Accept": "application/json"})
             with opener.open(req, timeout=3) as response:
                 data = json.loads(response.read(4096).decode("utf-8", "replace"))
             value = (data.get("country") or data.get("country_code")) if isinstance(data, dict) else ""
@@ -416,6 +416,140 @@ def api_request(
         raise RuntimeError(f"Controller HTTP {exc.code}: {message}") from exc
 
 
+
+def _assigned_pool(expected: dict[str, Any]) -> tuple[int, ipaddress.IPv4Network, ipaddress.IPv4Interface]:
+    try:
+        slot = int(expected.get("node_slot"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Controller не передал номер VPN-пула SG-Node") from exc
+    if not 1 <= slot <= 12:
+        raise ValueError("Номер VPN-пула SG-Node должен быть от 1 до 12")
+    network = ipaddress.ip_network(str(expected.get("server_network") or ""), strict=True)
+    interface = ipaddress.ip_interface(str(expected.get("interface_address") or ""))
+    if network != ipaddress.ip_network(f"10.77.{slot}.0/24"):
+        raise ValueError("VPN-пул не соответствует номеру SG-Node")
+    if interface != ipaddress.ip_interface(f"10.77.{slot}.1/24"):
+        raise ValueError("Адрес awg0 должен быть .1/24 внутри назначенного пула")
+    return slot, network, interface
+
+
+def _migrate_pool_config(
+    config_text: str,
+    expected: dict[str, Any],
+) -> tuple[str, dict[str, str], str]:
+    """Move awg0 and every local /32 peer to the assigned RC5 /24."""
+    _slot, new_network, new_interface = _assigned_pool(expected)
+    values = _awg_interface_values(config_text)
+    old_address_text = str(values.get("address") or "").split(",", 1)[0].strip()
+    try:
+        old_interface = ipaddress.ip_interface(old_address_text)
+        old_network = old_interface.network
+    except ValueError as exc:
+        raise ValueError("Не удалось определить текущий адрес awg0 SG-Node") from exc
+    if old_network.version != 4:
+        raise ValueError("Для awg0 ожидается IPv4-пул")
+
+    def move_ip(value: ipaddress.IPv4Address) -> ipaddress.IPv4Address:
+        if value not in old_network:
+            return value
+        offset = int(value) - int(old_network.network_address)
+        candidate = ipaddress.ip_address(int(new_network.network_address) + offset)
+        if candidate not in new_network:
+            raise ValueError("Адрес peer не помещается в назначенный VPN-пул")
+        return candidate
+
+    lines = config_text.splitlines()
+    in_interface = False
+    in_peer = False
+    peer_key = ""
+    moved: dict[str, str] = {}
+    output: list[str] = []
+    for raw in lines:
+        stripped = raw.strip()
+        lower = stripped.casefold()
+        if lower == "[interface]":
+            in_interface, in_peer, peer_key = True, False, ""
+            output.append(raw)
+            continue
+        if lower == "[peer]":
+            in_interface, in_peer, peer_key = False, True, ""
+            output.append(raw)
+            continue
+        if in_interface and re.match(r"^\s*Address\s*=", raw, re.I):
+            output.append(f"Address = {new_interface}")
+            continue
+        if in_peer and re.match(r"^\s*PublicKey\s*=", raw, re.I):
+            peer_key = raw.split("=", 1)[1].strip()
+            output.append(raw)
+            continue
+        if in_peer and re.match(r"^\s*AllowedIPs\s*=", raw, re.I):
+            values_out: list[str] = []
+            for item in raw.split("=", 1)[1].split(","):
+                value = item.strip()
+                try:
+                    route = ipaddress.ip_network(value, strict=False)
+                except ValueError:
+                    values_out.append(value)
+                    continue
+                if route.version == 4 and route.prefixlen == 32 and route.network_address in old_network:
+                    new_ip = move_ip(route.network_address)
+                    values_out.append(f"{new_ip}/32")
+                    if peer_key:
+                        moved[peer_key] = f"{new_ip}/32"
+                else:
+                    values_out.append(str(route))
+            output.append("AllowedIPs = " + ", ".join(values_out))
+            continue
+        # Managed PostUp/PostDown rules may contain the old network literal.
+        output.append(raw.replace(str(old_network), str(new_network)))
+    return "\n".join(output).rstrip() + "\n", moved, str(old_network)
+
+
+def _update_local_panel_pool(
+    expected: dict[str, Any],
+    moved: dict[str, str],
+) -> None:
+    database = Path(os.environ.get("AWGPANEL_DB", "/var/lib/sg-awg-panel/panel.db"))
+    if not database.is_file():
+        return
+    try:
+        import sqlite3
+        con = sqlite3.connect(database)
+        try:
+            slot = int(expected["node_slot"])
+            network = str(expected["server_network"])
+            con.execute(
+                "UPDATE awg_settings SET server_network=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (network,),
+            )
+            local = con.execute(
+                "SELECT id FROM cluster_nodes WHERE is_local=1 ORDER BY id LIMIT 1"
+            ).fetchone()
+            if local is not None:
+                local_id = int(local[0])
+                con.execute("DELETE FROM cluster_pool_slots WHERE node_id=?", (local_id,))
+                con.execute(
+                    "UPDATE cluster_nodes SET node_slot=?,vpn_network=?,role='node',updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (slot, network, local_id),
+                )
+                con.execute(
+                    "INSERT INTO cluster_pool_slots(slot,vpn_network,node_id,retired_at) "
+                    "VALUES(?,?,?,NULL) ON CONFLICT(slot) DO UPDATE SET "
+                    "vpn_network=excluded.vpn_network,node_id=excluded.node_id,retired_at=NULL",
+                    (slot, network, local_id),
+                )
+            for public_key, address in moved.items():
+                con.execute(
+                    "UPDATE awg_clients SET address=?,updated_at=CURRENT_TIMESTAMP "
+                    "WHERE node_id IS NULL AND public_key=?",
+                    (address, public_key),
+                )
+            con.commit()
+        finally:
+            con.close()
+    except Exception as exc:
+        raise RuntimeError(f"Не удалось синхронизировать локальную базу SG-Node: {exc}") from exc
+
 def _validate_managed_peers(
     payload: dict[str, Any],
     runtime: dict[str, Any],
@@ -441,9 +575,12 @@ def _validate_managed_peers(
     actual_key = str(runtime.get("public_key") or "").strip()
     if not actual_key:
         raise ValueError("Не удалось определить публичный ключ работающего awg0")
-    expected_network = str(expected.get("server_network") or "").strip()
-    if not expected_network or str(runtime.get("server_network") or "") != expected_network:
-        raise ValueError("Сеть работающего awg0 не совпадает с данными Controller")
+    _slot, assigned_network, assigned_interface = _assigned_pool(expected)
+    expected_network = str(assigned_network)
+    if str(runtime.get("server_network") or "") != expected_network:
+        raise ValueError("Сеть работающего awg0 не совпадает с назначенным пулом Controller")
+    if str(runtime.get("interface_address") or "") != str(assigned_interface):
+        raise ValueError("Адрес работающего awg0 не совпадает с назначенным пулом Controller")
 
     raw_peers = payload.get("peers")
     if not isinstance(raw_peers, list) or len(raw_peers) > 1000:
@@ -871,15 +1008,20 @@ def sync_awg_clients(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("На SG-Node не найден рабочий awg0.conf")
     previous = AWG_CONFIG_PATH.read_bytes()
     previous_text = previous.decode("utf-8")
+    previous_traffic = NODE_TRAFFIC_PATH.read_bytes() if NODE_TRAFFIC_PATH.exists() else b""
     runtime_before = _awg_runtime()
+    expected = payload.get("expected") if isinstance(payload.get("expected"), dict) else {}
+    migrated_text, moved_local_clients, old_network = _migrate_pool_config(previous_text, expected)
+    synthetic_runtime = dict(runtime_before)
+    synthetic_runtime["server_network"] = str(expected.get("server_network") or "")
+    synthetic_runtime["interface_address"] = str(expected.get("interface_address") or "")
     reserved_addresses = _unmanaged_reserved_addresses(
-        previous_text, str(runtime_before.get("server_network") or "")
+        migrated_text, str(synthetic_runtime.get("server_network") or "")
     )
     peers = _validate_managed_peers(
-        payload, runtime_before, reserved_addresses=reserved_addresses
+        payload, synthetic_runtime, reserved_addresses=reserved_addresses
     )
-    previous_traffic = NODE_TRAFFIC_PATH.read_bytes() if NODE_TRAFFIC_PATH.exists() else b""
-    new_text = _replace_managed_peers(previous_text, peers)
+    new_text = _replace_managed_peers(migrated_text, peers)
     temporary = AWG_CONFIG_PATH.with_name("awg0-sync.conf")
     temporary.write_text(new_text, encoding="utf-8")
     temporary.chmod(0o600)
@@ -901,6 +1043,7 @@ def sync_awg_clients(payload: dict[str, Any]) -> dict[str, Any]:
         missing = [peer["id"] for peer in peers if peer["public_key"] not in actual_keys]
         if missing:
             raise RuntimeError("После перезапуска не найдены peers клиентов: " + ", ".join(map(str, missing)))
+        _update_local_panel_pool(expected, moved_local_clients)
     except Exception:
         rollback = AWG_CONFIG_PATH.with_name("awg0-rollback.conf")
         rollback.write_bytes(previous)
@@ -915,12 +1058,14 @@ def sync_awg_clients(payload: dict[str, Any]) -> dict[str, Any]:
     finally:
         temporary.unlink(missing_ok=True)
     return {
-        "message": "Список клиентов SG-Node применён и проверен",
+        "message": "VPN-пул и список клиентов SG-Node применены и проверены",
         "verified_client_ids": [peer["id"] for peer in peers],
         "listen_port": int(runtime_after.get("listen_port") or 0),
         "server_network": str(runtime_after.get("server_network") or ""),
         "server_public_key": str(runtime_after.get("public_key") or ""),
         "managed_peers": len(peers),
+        "migrated_local_clients": len(moved_local_clients),
+        "pool_changed_from": old_network,
         "runtime": runtime_after,
     }
 

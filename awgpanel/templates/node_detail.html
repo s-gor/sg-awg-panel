@@ -29,6 +29,8 @@
     <div class="card-heading"><div><span class="section-kicker">СЕРВЕР И AGENT</span><h2>Состояние узла</h2></div><span class="status-badge {{ 'success' if node.effective_state == 'online' else ('warning' if node.effective_state == 'pending' else 'danger') }}">{{ {'online':'В сети','pending':'Ожидает подключения','offline':'Не в сети','error':'Ошибка','disabled':'Отключена'}.get(node.effective_state,node.effective_state) }}</span></div>
     <dl class="node-data-list">
       <div><dt>Роль</dt><dd>{{ 'Controller' if node.is_local else 'SG-Node' }}</dd></div>
+      <div><dt>VPN-пул</dt><dd>{{ node.vpn_network or 'не назначен' }}</dd></div>
+      <div><dt>Адрес awg0</dt><dd>{{ node.pool_interface or 'не назначен' }}</dd></div>
       <div><dt>Идентификатор</dt><dd><code>{{ node.slug }}</code></dd></div>
       <div><dt>Публичный адрес</dt><dd>{{ node.public_ipv4 or node.public_host or 'ещё не получен' }}</dd></div>
       <div><dt>Страна</dt><dd>{{ country_flag_icon(node.country_code, node.country_name) }} {{ node.country_name }}{% if node.country_mode == 'manual' %} · вручную{% else %} · автоматически{% endif %}</dd></div>

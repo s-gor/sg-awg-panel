@@ -20,7 +20,7 @@ from pathlib import Path
 from . import db
 from .db import ACTIVE_CLIENT_SQL, connect, init_db
 from .errors import AWGPanelError
-from .traffic import effective_allowed_ips, normalize_networks, validate_advertised_networks
+from .traffic import effective_allowed_ips, exported_allowed_ips, normalize_networks, validate_advertised_networks
 from .traffic_modes import AWG_GATEWAY, VALID_EGRESS_MODES, normalize_egress_mode
 from .server_profiles import ensure_udp_port_available, network_client_addresses
 
@@ -32,6 +32,20 @@ PANEL_ACCESS_JOBS_DIR = Path(os.environ.get("AWGPANEL_ACCESS_JOBS_DIR", "/var/li
 BACKUP_KEEP = int(os.environ.get("AWGPANEL_BACKUP_KEEP", "20"))
 PLACEHOLDER_PATH = Path(os.environ.get("AWGPANEL_PLACEHOLDER_PATH", "/var/www/sg-awg-placeholder/index.html"))
 PLACEHOLDER_MAX_BYTES = 256 * 1024
+BACKUP_FORMAT_VERSION = 3
+PANEL_ENV_PATH = Path(os.environ.get("AWGPANEL_ENV_FILE", "/etc/sg-awg-panel/web.env"))
+NODE_AGENT_ENV_PATH = Path(os.environ.get("SG_AWG_NODE_ENV_FILE", "/etc/sg-awg-node/agent.env"))
+NODE_AGENT_STATE_DIR = Path(os.environ.get("SG_AWG_NODE_STATE_DIR", "/var/lib/sg-awg-node"))
+DNSMASQ_CONFIG_PATH = Path(os.environ.get("AWGPANEL_DNSMASQ_CONFIG", "/etc/dnsmasq.d/sg-awg-traffic.conf"))
+TRAFFIC_STATE_DIR = Path(os.environ.get("AWGPANEL_TRAFFIC_STATE_DIR", "/var/lib/sg-awg-panel/traffic-rules"))
+NGINX_MANAGED_PATHS = (
+    Path("/etc/nginx/sites-available/sg-awg-panel"),
+    Path("/etc/nginx/sites-enabled/sg-awg-panel"),
+    Path("/etc/nginx/sites-available/sg-awg-panel.conf"),
+    Path("/etc/nginx/sites-enabled/sg-awg-panel.conf"),
+    Path("/etc/nginx/sites-available/sg-awg-placeholder.conf"),
+    Path("/etc/nginx/sites-enabled/sg-awg-placeholder.conf"),
+)
 _PUBLIC_IP_CACHE: tuple[str, float] = ("", 0.0)
 AWG_NAME_RE = re.compile(r"^[A-Za-z0-9А-Яа-яЁё_. -]{1,64}$")
 CASCADE_SYSTEM_ROLE = "cascade_exit"
@@ -409,7 +423,9 @@ def detect_public_ipv4(*, force: bool = False) -> str:
     """Best-effort public IPv4 detection without making it a hard dependency."""
     global _PUBLIC_IP_CACHE
     cached, cached_at = _PUBLIC_IP_CACHE
-    if not force and cached and time.time() - cached_at < 300:
+    cache_age = time.time() - cached_at if cached_at else float("inf")
+    cache_ttl = 300 if cached else 60
+    if not force and cache_age < cache_ttl:
         return cached
 
     def accept(candidate: str) -> str:
@@ -448,7 +464,9 @@ def detect_public_ipv4(*, force: bool = False) -> str:
             continue
         if detected:
             return detected
-    return cached if not force else ""
+    result = cached if not force else ""
+    _PUBLIC_IP_CACHE = (result, time.time())
+    return result
 
 
 def _safe_reason(reason: str) -> str:
@@ -464,9 +482,164 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verify_backup_path(backup: Path, *, update_metadata: bool = False) -> dict[str, object]:
+def _backup_version_compatible(value: str) -> bool:
+    match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", str(value or ""), re.I)
+    current = re.match(r"^(\d+)\.(\d+)\.(\d+)", __import__("awgpanel").__version__)
+    return bool(match and current and match.group(1, 2) == current.group(1, 2))
+
+
+def _backup_database_summary(path: Path) -> dict[str, object]:
+    result: dict[str, object] = {"clients": 0, "nodes": 0, "cascade": False, "traffic_rules": 0}
+    if not path.is_file():
+        return result
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+        try:
+            tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "awg_clients" in tables:
+                result["clients"] = int(con.execute("SELECT COUNT(*) FROM awg_clients").fetchone()[0])
+            if "cluster_nodes" in tables:
+                result["nodes"] = int(con.execute("SELECT COUNT(*) FROM cluster_nodes WHERE is_local=0").fetchone()[0])
+            if "cascade_settings" in tables:
+                row = con.execute("SELECT enabled,last_state FROM cascade_settings WHERE id=1").fetchone()
+                result["cascade"] = bool(row and (int(row[0]) or str(row[1]) not in {"", "not_configured"}))
+            if "traffic_rules" in tables:
+                result["traffic_rules"] = int(con.execute("SELECT COUNT(*) FROM traffic_rules").fetchone()[0])
+        finally:
+            con.close()
+    except sqlite3.Error:
+        pass
+    return result
+
+
+def _managed_backup_sources() -> list[tuple[Path, Path]]:
+    sources: list[tuple[Path, Path]] = [
+        (Path("etc/sg-awg-panel/web.env"), PANEL_ENV_PATH),
+        (Path("etc/sg-awg-node/agent.env"), NODE_AGENT_ENV_PATH),
+        (Path("var/lib/sg-awg-node"), NODE_AGENT_STATE_DIR),
+        (Path("etc/dnsmasq.d/sg-awg-traffic.conf"), DNSMASQ_CONFIG_PATH),
+        (Path("var/www/sg-awg-placeholder/index.html"), PLACEHOLDER_PATH),
+        (Path("var/lib/sg-awg-panel/traffic-rules"), TRAFFIC_STATE_DIR),
+    ]
+    for source in NGINX_MANAGED_PATHS:
+        sources.append((Path(str(source).lstrip("/")), source))
+    try:
+        panel = get_panel_settings()
+        domain = str(panel["public_host"] or "").strip()
+        if bool(panel["https_enabled"]) and re.fullmatch(r"[A-Za-z0-9.-]{1,253}", domain):
+            sources.extend([
+                (Path(f"etc/letsencrypt/live/{domain}"), Path(f"/etc/letsencrypt/live/{domain}")),
+                (Path(f"etc/letsencrypt/archive/{domain}"), Path(f"/etc/letsencrypt/archive/{domain}")),
+                (Path(f"etc/letsencrypt/renewal/{domain}.conf"), Path(f"/etc/letsencrypt/renewal/{domain}.conf")),
+            ])
+    except Exception:
+        pass
+    return sources
+
+
+def _copy_backup_source(source: Path, destination: Path) -> list[Path]:
+    if not source.exists() and not source.is_symlink():
+        return []
+    copied: list[Path] = []
+    actual_source = source.resolve() if source.is_symlink() else source
+    if actual_source.is_dir():
+        # Let's Encrypt live/<domain> is normally a directory symlink. Copy the
+        # resolved certificate files as ordinary files so the backup remains
+        # self-contained and does not depend on archive/ symlink targets.
+        for item in actual_source.rglob("*"):
+            if item.is_dir() and not item.is_symlink():
+                continue
+            relative = item.relative_to(actual_source)
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            actual = item.resolve() if item.is_symlink() else item
+            if actual.is_file():
+                shutil.copy2(actual, target)
+                os.chmod(target, 0o600)
+                copied.append(target)
+    elif actual_source.is_file():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(actual_source, destination)
+        os.chmod(destination, 0o600)
+        copied.append(destination)
+    return copied
+
+
+def _backup_file_manifest(backup: Path) -> dict[str, dict[str, object]]:
+    files: dict[str, dict[str, object]] = {}
+    for path in sorted(item for item in backup.rglob("*") if item.is_file() and not item.is_symlink()):
+        relative = path.relative_to(backup).as_posix()
+        if relative == "manifest.json":
+            continue
+        files[relative] = {"size": path.stat().st_size, "sha256": _sha256_file(path)}
+    return files
+
+
+def _write_backup_manifest(backup: Path) -> dict[str, dict[str, object]]:
+    files = _backup_file_manifest(backup)
+    payload = {
+        "format_version": BACKUP_FORMAT_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "files": files,
+    }
+    path = backup / "manifest.json"
+    temporary = path.with_suffix(".json.new")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    temporary.replace(path)
+    return files
+
+
+def _managed_restore_path_allowed(relative: Path) -> bool:
+    parts = relative.parts
+    if relative.is_absolute() or not parts or any(part in {"", ".", ".."} for part in parts):
+        return False
+    exact = {
+        Path("etc/sg-awg-panel/web.env"),
+        Path("etc/sg-awg-node/agent.env"),
+        Path("etc/dnsmasq.d/sg-awg-traffic.conf"),
+        Path("var/www/sg-awg-placeholder/index.html"),
+        *[Path(str(path).lstrip("/")) for path in NGINX_MANAGED_PATHS],
+    }
+    if relative in exact:
+        return True
+    allowed_directories = (
+        Path("var/lib/sg-awg-node"),
+        Path("var/lib/sg-awg-panel/traffic-rules"),
+        Path("etc/letsencrypt/live"),
+        Path("etc/letsencrypt/archive"),
+        Path("etc/letsencrypt/renewal"),
+    )
+    return any(relative != prefix and prefix in relative.parents for prefix in allowed_directories)
+
+
+def _legacy_backup_manifest(metadata: dict[str, object]) -> dict[str, dict[str, object]] | None:
+    raw = metadata.get("manifest") or metadata.get("files")
+    if not isinstance(raw, dict) or not raw:
+        return None
+    result: dict[str, dict[str, object]] = {}
+    for name, details in raw.items():
+        if not isinstance(name, str) or not isinstance(details, dict):
+            return None
+        result[name] = dict(details)
+    return result
+
+
+def _verify_backup_path(
+    backup: Path, *, update_metadata: bool = False, build_manifest: bool = False
+) -> dict[str, object]:
     errors: list[str] = []
+    checks: dict[str, bool] = {
+        "Безопасная структура": True,
+        "Manifest и SHA-256": True,
+        "Совместимость версии": True,
+        "База SQLite": True,
+        "JSON и конфигурации": True,
+        "Ключевые данные": True,
+    }
+    backup_root = backup.resolve()
     metadata_path = backup / "metadata.json"
+    manifest_path = backup / "manifest.json"
     metadata: dict[str, object] = {}
     try:
         loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -474,72 +647,219 @@ def _verify_backup_path(backup: Path, *, update_metadata: bool = False) -> dict[
             metadata = loaded
         else:
             errors.append("metadata.json имеет неверный формат")
+            checks["JSON и конфигурации"] = False
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"metadata.json: {exc}")
+        checks["JSON и конфигурации"] = False
+
+    managed_entries = metadata.get("managed_files", [])
+    if not isinstance(managed_entries, list):
+        errors.append("metadata.json: managed_files должен быть списком")
+        checks["Безопасная структура"] = False
+        managed_entries = []
+    else:
+        for entry in managed_entries:
+            candidate = Path(str(entry))
+            try:
+                relative = candidate.relative_to("managed")
+            except ValueError:
+                relative = Path("..")
+            if not _managed_restore_path_allowed(relative):
+                errors.append(f"Недопустимый управляемый путь: {entry}")
+                checks["Безопасная структура"] = False
+
+    for path in backup.rglob("*"):
+        try:
+            resolved = path.resolve()
+            if path.is_symlink() or (resolved != backup_root and backup_root not in resolved.parents):
+                errors.append(f"Опасный путь в копии: {path.relative_to(backup)}")
+                checks["Безопасная структура"] = False
+        except (OSError, ValueError):
+            errors.append(f"Не удалось проверить путь: {path}")
+            checks["Безопасная структура"] = False
+
+    backup_version = str(metadata.get("panel_version") or metadata.get("version") or "")
+    if not backup_version:
+        errors.append("В metadata.json отсутствует версия панели")
+        checks["Совместимость версии"] = False
+    elif not _backup_version_compatible(backup_version):
+        errors.append(f"Версия копии {backup_version} несовместима с установленной панелью")
+        checks["Совместимость версии"] = False
 
     database_path = backup / "panel.db"
     if bool(metadata.get("database_existed", database_path.exists())):
         if not database_path.is_file() or database_path.stat().st_size == 0:
             errors.append("panel.db отсутствует или пуст")
+            checks["База SQLite"] = False
+            checks["Ключевые данные"] = False
         else:
             try:
-                connection = sqlite3.connect(
-                    f"file:{database_path}?mode=ro", uri=True
-                )
+                con = sqlite3.connect(f"file:{database_path}?mode=ro&immutable=1", uri=True)
                 try:
-                    integrity = connection.execute("PRAGMA integrity_check").fetchall()
+                    integrity = con.execute("PRAGMA integrity_check").fetchall()
+                    tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 finally:
-                    connection.close()
+                    con.close()
                 if integrity != [("ok",)]:
                     errors.append(f"SQLite integrity_check: {integrity}")
+                    checks["База SQLite"] = False
+                required = {"awg_settings", "awg_clients", "panel_settings", "cluster_nodes"}
+                missing = sorted(required - tables)
+                if missing:
+                    errors.append("В panel.db отсутствуют таблицы: " + ", ".join(missing))
+                    checks["Ключевые данные"] = False
             except sqlite3.Error as exc:
                 errors.append(f"panel.db: {exc}")
+                checks["База SQLite"] = False
+
+    panel_env_backup = backup / "managed/etc/sg-awg-panel/web.env"
+    if bool(metadata.get("panel_env_existed", False)):
+        if not panel_env_backup.is_file() or panel_env_backup.stat().st_size == 0:
+            errors.append("В копии отсутствует обязательный web.env")
+            checks["Ключевые данные"] = False
+        else:
+            try:
+                env_lines = panel_env_backup.read_text(encoding="utf-8").splitlines()
+            except OSError as exc:
+                errors.append(f"web.env: {exc}")
+                checks["Ключевые данные"] = False
+            else:
+                env_values = {
+                    line.split("=", 1)[0].strip(): line.split("=", 1)[1].strip().strip("'\"")
+                    for line in env_lines
+                    if "=" in line and not line.lstrip().startswith("#")
+                }
+                missing_env = [
+                    key for key in ("AWGPANEL_SECRET_KEY", "AWGPANEL_PASSWORD_HASH", "AWGPANEL_DB")
+                    if not env_values.get(key)
+                ]
+                if missing_env:
+                    errors.append("web.env не содержит обязательные значения: " + ", ".join(missing_env))
+                    checks["Ключевые данные"] = False
+
+    node_env_backup = backup / "managed/etc/sg-awg-node/agent.env"
+    if bool(metadata.get("node_agent_env_existed", False)) and (
+        not node_env_backup.is_file() or node_env_backup.stat().st_size == 0
+    ):
+        errors.append("В копии отсутствует обязательный agent.env подключённой SG-Node")
+        checks["Ключевые данные"] = False
 
     config_path = backup / "awg0.conf"
-    if bool(metadata.get("config_existed", False)) and (
-        not config_path.is_file() or config_path.stat().st_size == 0
-    ):
-        errors.append("awg0.conf должен присутствовать, но отсутствует или пуст")
+    if bool(metadata.get("config_existed", False)):
+        if not config_path.is_file() or config_path.stat().st_size == 0:
+            errors.append("awg0.conf должен присутствовать, но отсутствует или пуст")
+            checks["JSON и конфигурации"] = False
+        else:
+            text = config_path.read_text(encoding="utf-8", errors="replace")
+            if "[Interface]" not in text or "PrivateKey" not in text:
+                errors.append("awg0.conf не содержит обязательную секцию Interface и ключ")
+                checks["JSON и конфигурации"] = False
 
-    files: dict[str, dict[str, object]] = {}
-    total_size = 0
-    for path in sorted(item for item in backup.iterdir() if item.is_file()):
-        size = path.stat().st_size
-        total_size += size
-        if path.name != "metadata.json":
-            files[path.name] = {"size": size, "sha256": _sha256_file(path)}
+    for suffix in ("-wal", "-shm"):
+        (backup / f"panel.db{suffix}").unlink(missing_ok=True)
+
+    actual_files = _backup_file_manifest(backup)
+    total_size = sum(item.stat().st_size for item in backup.rglob("*") if item.is_file())
+    for relative in actual_files:
+        path = backup / relative
+        if path.suffix.casefold() == ".json":
+            try:
+                json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                errors.append(f"{relative}: некорректный JSON ({exc})")
+                checks["JSON и конфигурации"] = False
+
+    stored_manifest: dict[str, dict[str, object]] | None = None
+    legacy_manifest = False
+    if manifest_path.is_file() and not manifest_path.is_symlink():
+        try:
+            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raw_files = loaded_manifest.get("files") if isinstance(loaded_manifest, dict) else None
+            if isinstance(raw_files, dict):
+                stored_manifest = {
+                    str(name): dict(details)
+                    for name, details in raw_files.items()
+                    if isinstance(name, str) and isinstance(details, dict)
+                }
+                if len(stored_manifest) != len(raw_files):
+                    stored_manifest = None
+            else:
+                errors.append("manifest.json имеет неверный формат")
+                checks["Manifest и SHA-256"] = False
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"manifest.json: {exc}")
+            checks["Manifest и SHA-256"] = False
+    elif not build_manifest:
+        # RC4 backups stored hashes inside metadata.json. They can be checked and
+        # upgraded once, but new RC5 backups always require a separate manifest
+        # that also protects metadata.json itself.
+        stored_manifest = _legacy_backup_manifest(metadata)
+        legacy_manifest = stored_manifest is not None
+        if stored_manifest is None:
+            errors.append("В резервной копии отсутствует manifest.json")
+            checks["Manifest и SHA-256"] = False
+
+    if stored_manifest is not None:
+        compared_files = actual_files
+        if legacy_manifest:
+            compared_files = {
+                name: details for name, details in actual_files.items()
+                if name != "metadata.json" and name in stored_manifest
+            }
+        if set(stored_manifest) != set(compared_files):
+            errors.append("Состав файлов не совпадает с manifest")
+            checks["Manifest и SHA-256"] = False
+        for name, details in compared_files.items():
+            expected = stored_manifest.get(name)
+            try:
+                expected_size = int(expected.get("size", -1)) if isinstance(expected, dict) else -1
+            except (TypeError, ValueError):
+                expected_size = -1
+            if (
+                not isinstance(expected, dict)
+                or str(expected.get("sha256") or "") != str(details["sha256"])
+                or expected_size != int(details["size"])
+            ):
+                errors.append(f"Не совпадает контрольная сумма или размер: {name}")
+                checks["Manifest и SHA-256"] = False
+
+    if build_manifest and not errors:
+        stored_manifest = _write_backup_manifest(backup)
+        actual_files = stored_manifest
+        total_size = sum(item.stat().st_size for item in backup.rglob("*") if item.is_file())
+    elif legacy_manifest and update_metadata and not errors:
+        # Upgrade a verified RC4 copy to the RC5 format. From this point onward
+        # metadata.json is protected by manifest.json as well.
+        stored_manifest = _write_backup_manifest(backup)
+        actual_files = stored_manifest
+        total_size = sum(item.stat().st_size for item in backup.rglob("*") if item.is_file())
 
     result = {
         "verified": not errors,
         "verification_errors": errors,
         "verified_at": datetime.now(timezone.utc).isoformat(),
         "size_bytes": total_size,
-        "file_count": len(files) + (1 if metadata_path.exists() else 0),
-        "files": files,
+        "size_text": _human_size(total_size),
+        "file_count": sum(1 for item in backup.rglob("*") if item.is_file()),
+        "files": actual_files,
+        "manifest": stored_manifest or {},
+        "checks": checks,
+        "backup_version": backup_version,
+        "format_version": int(metadata.get("format_version") or (1 if legacy_manifest else 0)),
+        "legacy_upgraded": bool(legacy_manifest and update_metadata and not errors),
+        "summary": _backup_database_summary(database_path),
     }
-    if update_metadata and metadata_path.exists():
-        metadata.update(result)
-        temporary = metadata_path.with_suffix(".json.new")
-        temporary.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.chmod(temporary, 0o600)
-        temporary.replace(metadata_path)
-        result["size_bytes"] = sum(
-            item.stat().st_size for item in backup.iterdir() if item.is_file()
-        )
     return result
 
 
 def _backup_state(reason: str) -> Path:
+    from . import __version__
     _require_root()
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     os.chmod(BACKUP_DIR, 0o700)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     target = BACKUP_DIR / f"{stamp}-{_safe_reason(reason)}"
     target.mkdir(mode=0o700)
-
     database_existed = db.DB_PATH.exists()
     if database_existed:
         destination = sqlite3.connect(target / "panel.db")
@@ -549,58 +869,80 @@ def _backup_state(reason: str) -> Path:
         finally:
             destination.close()
         os.chmod(target / "panel.db", 0o600)
-
     config_existed = AWG_CONFIG_PATH.exists()
     if config_existed:
         shutil.copy2(AWG_CONFIG_PATH, target / "awg0.conf")
         os.chmod(target / "awg0.conf", 0o600)
-
+    managed_root = target / "managed"
+    managed_files: list[str] = []
+    for relative, source in _managed_backup_sources():
+        for copied in _copy_backup_source(source, managed_root / relative):
+            managed_files.append(copied.relative_to(target).as_posix())
     metadata = {
+        "format_version": BACKUP_FORMAT_VERSION,
+        "panel_version": __version__,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "reason": reason,
         "database_existed": database_existed,
         "config_existed": config_existed,
+        "panel_env_existed": PANEL_ENV_PATH.exists(),
+        "node_agent_env_existed": NODE_AGENT_ENV_PATH.exists(),
         "service_state": awg_service_state(),
+        "managed_files": managed_files,
+        "summary": _backup_database_summary(target / "panel.db"),
     }
-    (target / "metadata.json").write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    (target / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.chmod(target / "metadata.json", 0o600)
-
-    verification = _verify_backup_path(target, update_metadata=True)
+    verification = _verify_backup_path(target, update_metadata=True, build_manifest=True)
     if not verification["verified"]:
         shutil.rmtree(target, ignore_errors=True)
-        raise AWGPanelError(
-            "Резервная копия не прошла проверку: "
-            + "; ".join(str(item) for item in verification["verification_errors"])
-        )
-
+        raise AWGPanelError("Резервная копия не прошла проверку: " + "; ".join(map(str, verification["verification_errors"])))
     backups = sorted((item for item in BACKUP_DIR.iterdir() if item.is_dir()), reverse=True)
     for old in backups[max(1, _backup_keep_value()):]:
         shutil.rmtree(old, ignore_errors=True)
     return target
 
+
+def _restore_managed_files(backup: Path, metadata: dict[str, object]) -> None:
+    root = backup / "managed"
+    if not root.is_dir():
+        return
+    root_resolved = root.resolve()
+    entries = metadata.get("managed_files", [])
+    if not isinstance(entries, list):
+        raise AWGPanelError("Некорректный список управляемых файлов в копии")
+    for relative_text in entries:
+        candidate = Path(str(relative_text))
+        try:
+            relative = candidate.relative_to("managed")
+        except ValueError as exc:
+            raise AWGPanelError("Некорректный путь управляемого файла в копии") from exc
+        if not _managed_restore_path_allowed(relative):
+            raise AWGPanelError(f"В копии запрещён путь восстановления: {relative}")
+        source = root / relative
+        source_resolved = source.resolve()
+        if root_resolved not in source_resolved.parents or not source.is_file() or source.is_symlink():
+            raise AWGPanelError(f"В копии отсутствует безопасный управляемый файл: {relative}")
+        target = Path("/") / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        os.chmod(target, 0o600 if any(part in {"sg-awg-panel", "sg-awg-node", "letsencrypt"} for part in relative.parts) else 0o644)
+
+
 def _restore_backup(backup: Path) -> None:
     metadata_path = backup / "metadata.json"
-    metadata = {}
+    metadata: dict[str, object] = {}
     if metadata_path.exists():
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            metadata = {}
-
+        loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            metadata = loaded
     previous_state = str(metadata.get("service_state", "inactive"))
-
-    # When the pre-change service was inactive, stop the newly started
-    # interface while its current awg0.conf still exists. Deleting the config
-    # first makes awg-quick down fail and leaves a stale awg0 interface behind.
     if previous_state != "active":
         stop_result = _run(["systemctl", "stop", AWG_SERVICE], timeout=30)
         if stop_result.returncode != 0 and AWG_CONFIG_PATH.exists():
             awg_quick = _command_path("awg-quick")
             if awg_quick:
                 _run([awg_quick, "down", str(AWG_CONFIG_PATH)], timeout=30)
-
     backup_db = backup / "panel.db"
     if backup_db.exists():
         db.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -608,7 +950,6 @@ def _restore_backup(backup: Path) -> None:
             Path(str(db.DB_PATH) + suffix).unlink(missing_ok=True)
         shutil.copy2(backup_db, db.DB_PATH)
         os.chmod(db.DB_PATH, 0o600)
-
     backup_config = backup / "awg0.conf"
     AWG_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if backup_config.exists():
@@ -616,7 +957,7 @@ def _restore_backup(backup: Path) -> None:
         os.chmod(AWG_CONFIG_PATH, 0o600)
     elif not metadata.get("config_existed", False):
         AWG_CONFIG_PATH.unlink(missing_ok=True)
-
+    _restore_managed_files(backup, metadata)
     if previous_state == "active" and AWG_CONFIG_PATH.exists():
         _run(["systemctl", "restart", AWG_SERVICE], timeout=30)
     _reload_egress_if_available()
@@ -642,8 +983,7 @@ def find_backup_path(name: str) -> Path:
 
 
 def verify_backup(name: str) -> dict[str, object]:
-    backup = find_backup_path(name)
-    return _verify_backup_path(backup, update_metadata=True)
+    return _verify_backup_path(find_backup_path(name), update_metadata=True)
 
 
 def list_backups(limit: int = 10) -> list[dict[str, object]]:
@@ -659,16 +999,8 @@ def list_backups(limit: int = 10) -> list[dict[str, object]]:
         except (OSError, json.JSONDecodeError):
             pass
         verification = _verify_backup_path(item, update_metadata=False)
-        size_bytes = int(verification.get("size_bytes") or 0)
-        result.append({
-            "name": item.name,
-            "path": str(item),
-            **metadata,
-            **verification,
-            "size_text": _human_size(size_bytes),
-        })
+        result.append({"name": item.name, "path": str(item), **metadata, **verification})
     return result
-
 
 
 def default_placeholder_html() -> str:
@@ -844,7 +1176,7 @@ def render_awg_client_config(client_id: int) -> str:
     additional_routes: list[str] = []
     if bool(client["include_server_lan"]) and str(settings["server_lan_networks"]).strip():
         additional_routes.append(str(settings["server_lan_networks"]))
-    allowed_ips = effective_allowed_ips(
+    allowed_ips = exported_allowed_ips(
         client["allowed_ips"],
         client["excluded_ips"],
         additional_routes,
@@ -933,6 +1265,13 @@ def _prepare_awg_values(current, values: dict[str, object]) -> dict[str, object]
         "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
     }.items():
         prepared.setdefault(key, current[key] if current["configured"] else default)
+    assigned_network = str(current["server_network"] or "10.77.0.0/24") if current["configured"] else "10.77.0.0/24"
+    requested_network = str(prepared.get("server_network") or assigned_network)
+    if requested_network != assigned_network:
+        raise ValueError(
+            f"VPN-пул {assigned_network} закреплён за этим сервером и не изменяется в настройках AWG"
+        )
+    prepared["server_network"] = assigned_network
     return _validate_settings(prepared)
 
 
@@ -3533,21 +3872,23 @@ def check_for_updates(*, force: bool = False) -> dict[str, object]:
         except ValueError:
             pass
 
+    # RC5 is published from the verified main branch without Releases or tags.
+    # Read the package version from that exact branch so the UI and updater use
+    # the same source of truth as install.sh and update-from-github.sh.
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{UPDATE_REPOSITORY}/tags?per_page=100",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "SG-AWG-Panel"},
+        f"https://raw.githubusercontent.com/{UPDATE_REPOSITORY}/main/awgpanel/__init__.py",
+        headers={"Accept": "text/plain", "User-Agent": "SG-AWG-Panel"},
     )
     latest = ""
     error = ""
     try:
         with urllib.request.urlopen(request, timeout=8) as response:  # nosec B310
-            payload = json.loads(response.read(256_000).decode("utf-8"))
-        tags = [str(item.get("name", "")) for item in payload if isinstance(item, dict)]
-        if str(settings["update_channel"]) == "stable":
-            tags = [tag for tag in tags if _version_key(tag)[3] == 3]
-        valid = [tag for tag in tags if _version_key(tag)[0] >= 0]
-        latest = max(valid, key=_version_key) if valid else current
-    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+            source = response.read(32_768).decode("utf-8")
+        match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', source, re.M)
+        if match is None or _version_key(match.group(1))[0] < 0:
+            raise ValueError("Не удалось определить версию в GitHub main")
+        latest = f"v{match.group(1)}"
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, ValueError) as exc:
         error = str(exc)
         latest = str(settings["latest_version"] or current)
     stamp = datetime.now(timezone.utc).isoformat()

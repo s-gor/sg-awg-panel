@@ -145,7 +145,7 @@
             {{ country_flag_icon('', 'Страна сервера', 'flag-select-preview') }}
             <select name="node_id" required data-flag-select>
               {% for node in client_nodes %}
-              <option value="{{ node.id }}" data-country="{{ node.country_code }}" {% if (preselected_node and preselected_node == node.id|string) or (not preselected_node and node.is_local) %}selected{% endif %} {% if not node.client_ready %}disabled{% endif %}>{{ node.country_name }} · {{ 'Controller · ' if node.is_local else 'SG-Node · ' }}{{ node.name }} · {{ node.client_endpoint }}{% if not node.client_ready %} — недоступен{% endif %}</option>
+              <option value="{{ node.id }}" data-country="{{ node.country_code }}" {% if (preselected_node and preselected_node == node.id|string) or (not preselected_node and node.is_local) %}selected{% endif %} {% if not node.client_ready %}disabled{% endif %}>{{ node.country_name }} · {{ 'Controller · ' if node.is_local else 'SG-Node · ' }}{{ node.name }} · {{ node.vpn_network }} · {{ node.client_endpoint }}{% if not node.client_ready %} — недоступен{% endif %}</option>
               {% endfor %}
             </select>
           </div>

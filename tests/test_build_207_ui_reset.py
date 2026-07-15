@@ -9,11 +9,11 @@ def read(relative: str) -> str:
 
 
 def test_207_release_identifiers():
-    assert '__version__ = "0.7.0-RC4"' in read("awgpanel/__init__.py")
-    assert 'version = "0.7.0rc4"' in read("pyproject.toml")
-    assert 'RELEASE_VERSION="v0.7.0-RC4"' in read("install.sh")
-    assert 'AGENT_VERSION = "0.7.0-RC4"' in read("node_agent/agent.py")
-    assert "sgawg070rc4" in read("awgpanel/web.py")
+    assert '__version__ = "0.7.0-RC5"' in read("awgpanel/__init__.py")
+    assert 'version = "0.7.0rc5"' in read("pyproject.toml")
+    assert 'RELEASE_VERSION="v0.7.0-RC5"' in read("install.sh")
+    assert 'AGENT_VERSION = "0.7.0-RC5"' in read("node_agent/agent.py")
+    assert "sgawg070rc5" in read("awgpanel/web.py")
 
 
 def test_browser_native_dialogs_are_gone_from_templates_and_static_assets():

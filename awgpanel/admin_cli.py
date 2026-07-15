@@ -186,11 +186,6 @@ def command_status(_args: argparse.Namespace) -> int:
     return 0
 
 
-def command_url(_args: argparse.Namespace) -> int:
-    print(_core().panel_public_url())
-    return 0
-
-
 def command_restart(_args: argparse.Namespace) -> int:
     _restart(PANEL_SERVICE)
     print(f"{C.green}OK{C.reset} Служба панели перезапущена.")
@@ -209,7 +204,7 @@ def command_restart_all(_args: argparse.Namespace) -> int:
 
 def command_backup(_args: argparse.Namespace) -> int:
     path = _core().create_manual_backup()
-    print(f"{C.green}OK{C.reset} Резервная копия создана: {path}")
+    print(f"{C.green}OK{C.reset} Резервная копия создана и проверена: {path}")
     return 0
 
 
@@ -227,6 +222,36 @@ def command_backups(_args: argparse.Namespace) -> int:
         print(f"{index:>3}. {item['name']}  {item.get('size_text', '')}  {mark}")
     return 0
 
+
+
+def command_verify_backup(args: argparse.Namespace) -> int:
+    items = _backups()
+    if not items:
+        raise RuntimeError("Резервных копий нет")
+    name = str(getattr(args, "name", None) or "").strip()
+    if not name:
+        command_backups(args)
+        choice = input("Номер резервной копии для проверки (Enter — отмена): ").strip()
+        if not choice:
+            print("Отменено.")
+            return 0
+        if not choice.isdigit() or not 1 <= int(choice) <= len(items):
+            raise RuntimeError("Некорректный номер резервной копии")
+        name = str(items[int(choice) - 1]["name"])
+    result = _core().verify_backup(name)
+    print(f"Резервная копия: {name}")
+    print(f"Файлов: {result.get('file_count', 0)}")
+    print(f"Размер: {result.get('size_text') or result.get('size_bytes', 0)}")
+    print(f"Версия: {result.get('backup_version') or 'не определена'}")
+    checks = result.get("checks") if isinstance(result.get("checks"), dict) else {}
+    for label, value in checks.items():
+        print(f"{label}: {'OK' if value else 'ОШИБКА'}")
+    if not result.get("verified"):
+        for error in result.get("verification_errors", []):
+            print(f"{C.red}ОШИБКА{C.reset} {error}")
+        raise RuntimeError("Резервная копия повреждена или несовместима")
+    print(f"{C.green}OK{C.reset} Резервная копия исправна. Можно восстанавливать.")
+    return 0
 
 def command_restore(args: argparse.Namespace) -> int:
     items = _backups()
@@ -259,39 +284,6 @@ def command_logs(args: argparse.Namespace) -> int:
     if result.stderr:
         sys.stderr.write(result.stderr)
     return result.returncode
-
-
-def command_errors(args: argparse.Namespace) -> int:
-    lines = max(20, min(500, int(getattr(args, "lines", 80))))
-    services = (PANEL_SERVICE, AWG_SERVICE, AGENT_SERVICE, NGINX_SERVICE)
-    found = False
-    for service in services:
-        result = _run(
-            "journalctl", "-u", service, "-p", "warning", "-n", str(lines), "--no-pager"
-        )
-        text = result.stdout.strip()
-        if not text or text == "-- No entries --":
-            continue
-        found = True
-        print(f"\n{C.bold}{service}{C.reset}")
-        print(text)
-    if not found:
-        print(f"{C.green}OK{C.reset} В последних журналах предупреждений и ошибок нет.")
-    return 0
-
-
-def command_diagnostics(_args: argparse.Namespace) -> int:
-    command_status(_args)
-    print("\nHealth:")
-    port = os.environ.get("AWGPANEL_PORT", "18080")
-    health = _run("curl", "-fsS", "--max-time", "5", f"http://127.0.0.1:{port}/health")
-    print(health.stdout.strip() if health.returncode == 0 else "backend не отвечает")
-    print("\nПоследние ошибки панели:")
-    result = _run(
-        "journalctl", "-u", PANEL_SERVICE, "-p", "warning", "-n", "30", "--no-pager"
-    )
-    print(result.stdout.strip() or "нет записей")
-    return 0
 
 
 def command_server_name(args: argparse.Namespace) -> int:
@@ -479,22 +471,19 @@ def _menu_header() -> list[str]:
 def _menu_items() -> list[tuple[str, str, Callable[[argparse.Namespace], int], str]]:
     return [
         ("1", "Состояние панели и адрес", command_status, "normal"),
-        ("2", "Показать только адрес панели", command_url, "normal"),
-        ("3", "Перезапустить веб-панель", command_restart, "normal"),
-        ("4", "Перезапустить Panel, AWG, Nginx и Agent", command_restart_all, "normal"),
-        ("5", "Полная диагностика системы", command_diagnostics, "normal"),
-        ("6", "Сменить пароль администратора", command_password, "accent"),
-        ("7", "Сбросить браузерные сессии и CSRF", command_sessions, "accent"),
-        ("8", "Восстановить доступ к панели", command_repair_access, "accent"),
-        ("9", "Проверить клиентов и подключения", command_clients, "normal"),
-        ("10", "Проверить Cluster и SG-Node", command_cluster, "normal"),
-        ("11", "Проверить Cascade", command_cascade, "normal"),
-        ("12", "Показать последние ошибки", command_errors, "normal"),
-        ("13", "Создать резервную копию", command_backup, "normal"),
-        ("14", "Восстановить резервную копию", command_restore, "warning"),
-        ("15", "Переименовать сервер", command_server_name, "normal"),
-        ("16", "Проверить и установить обновление", command_update, "warning"),
-        ("17", "Полностью удалить SG-AWG-Panel", command_uninstall, "danger"),
+        ("2", "Перезапустить веб-панель", command_restart, "normal"),
+        ("3", "Перезапустить Panel, AWG, Nginx и Agent", command_restart_all, "normal"),
+        ("4", "Сменить пароль администратора", command_password, "accent"),
+        ("5", "Сбросить браузерные сессии и CSRF", command_sessions, "accent"),
+        ("6", "Проверить клиентов и подключения", command_clients, "normal"),
+        ("7", "Проверить Cluster и SG-Node", command_cluster, "normal"),
+        ("8", "Проверить Cascade", command_cascade, "normal"),
+        ("9", "Создать резервную копию", command_backup, "normal"),
+        ("10", "Проверить резервную копию", command_verify_backup, "normal"),
+        ("11", "Восстановить резервную копию", command_restore, "warning"),
+        ("12", "Переименовать сервер", command_server_name, "normal"),
+        ("13", "Проверить и установить обновление", command_update, "warning"),
+        ("14", "Полностью удалить SG-AWG-Panel", command_uninstall, "danger"),
     ]
 
 
@@ -538,7 +527,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("status", help="состояние служб и адрес панели")
-    sub.add_parser("url", help="показать адрес панели")
     sub.add_parser("password", help="сбросить пароль администратора")
     sub.add_parser("sessions", help="завершить все браузерные сессии и сбросить CSRF")
     sub.add_parser("repair-access", help="восстановить секрет сессий и доступ к панели")
@@ -546,13 +534,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("restart-all", help="перезапустить основные службы")
     sub.add_parser("backup", help="создать резервную копию")
     sub.add_parser("backups", help="показать резервные копии")
+    verify = sub.add_parser("verify-backup", help="проверить резервную копию без восстановления")
+    verify.add_argument("name", nargs="?")
     restore = sub.add_parser("restore", help="восстановить резервную копию")
     restore.add_argument("name", nargs="?")
     logs = sub.add_parser("logs", help="показать журнал панели")
     logs.add_argument("--lines", type=int, default=100)
-    errors = sub.add_parser("errors", help="показать последние ошибки основных служб")
-    errors.add_argument("--lines", type=int, default=80)
-    sub.add_parser("diagnostics", help="показать диагностику")
     sub.add_parser("clients", help="проверить клиентов и подключения")
     sub.add_parser("cluster", help="проверить Cluster и SG-Node")
     sub.add_parser("cascade", help="проверить Cascade")
@@ -570,7 +557,6 @@ def main() -> int:
     _load_env_file()
     handlers = {
         "status": command_status,
-        "url": command_url,
         "password": command_password,
         "sessions": command_sessions,
         "repair-access": command_repair_access,
@@ -578,10 +564,9 @@ def main() -> int:
         "restart-all": command_restart_all,
         "backup": command_backup,
         "backups": command_backups,
+        "verify-backup": command_verify_backup,
         "restore": command_restore,
         "logs": command_logs,
-        "errors": command_errors,
-        "diagnostics": command_diagnostics,
         "clients": command_clients,
         "cluster": command_cluster,
         "cascade": command_cascade,

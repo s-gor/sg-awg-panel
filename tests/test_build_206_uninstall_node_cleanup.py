@@ -5,10 +5,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_206_release_identifiers():
-    assert '__version__ = "0.7.0-RC4"' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
-    assert "sgawg070rc4" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.7.0-RC4"' in (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert 'AGENT_VERSION = "0.7.0-RC4"' in (ROOT / "node_agent/agent.py").read_text(encoding="utf-8")
+    assert '__version__ = "0.7.0-RC5"' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
+    assert "sgawg070rc5" in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
+    assert 'RELEASE_VERSION="v0.7.0-RC5"' in (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert 'AGENT_VERSION = "0.7.0-RC5"' in (ROOT / "node_agent/agent.py").read_text(encoding="utf-8")
 
 
 def test_full_uninstall_removes_all_node_connection_artifacts():

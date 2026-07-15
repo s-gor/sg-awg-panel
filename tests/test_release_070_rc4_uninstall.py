@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TAG = "v0.7.0-RC4"
+TAG = "main"
 
 
 def test_github_one_command_uninstall_is_documented():

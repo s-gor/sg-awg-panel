@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${SG_AWG_PANEL_VERSION:-v0.7.0-RC4}"
-URL="https://github.com/s-gor/sg-awg-panel/archive/refs/tags/${VERSION}.tar.gz"
+VERSION="${SG_AWG_PANEL_VERSION:-v0.7.0-RC5}"
+URL="https://github.com/s-gor/sg-awg-panel/archive/refs/heads/main.tar.gz"
 LOCAL_SOURCE_DIR="${SG_AWG_PANEL_SOURCE_DIR:-}"
 PROJECT_DIR="/opt/sg-awg-panel"
 ENV_FILE="/etc/sg-awg-panel/web.env"
@@ -144,7 +144,7 @@ if [[ -n "$LOCAL_SOURCE_DIR" ]]; then
 else
   for command in curl tar; do command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"; done
   status downloading "Downloading source"
-  log "Downloading ${VERSION}"
+  log "Downloading GitHub main for ${VERSION}"
   curl -fsSL "$URL" -o "$TMP/source.tar.gz"
   tar -xzf "$TMP/source.tar.gz" -C "$TMP"
   SOURCE_DIR="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -1)"

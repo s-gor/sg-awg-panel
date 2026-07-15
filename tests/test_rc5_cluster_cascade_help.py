@@ -94,8 +94,8 @@ def ready_remote_node(tmp_path, monkeypatch, *, name="France Exit"):
             "awg_runtime": {
                 "configured": True,
                 "interface": "awg0",
-                "interface_address": "10.77.0.1/24",
-                "server_network": "10.77.0.0/24",
+                "interface_address": "10.77.1.1/24",
+                "server_network": "10.77.1.0/24",
                 "listen_port": 585,
                 "configured_listen_port": 585,
                 "public_key": "server-public-key",
@@ -232,8 +232,8 @@ def test_cluster_web_flow_uses_standard_port_and_explicit_status_action(tmp_path
         json={
             "services": {"awg": "active", "traffic": "active", "nginx": "active"},
             "awg_runtime": {
-                "interface_address": "10.77.0.1/24",
-                "server_network": "10.77.0.0/24",
+                "interface_address": "10.77.1.1/24",
+                "server_network": "10.77.1.0/24",
                 "listen_port": 585,
                 "public_key": "server-public-key",
                 "peers": {},
@@ -252,7 +252,7 @@ def test_remote_client_is_created_in_unified_registry_and_verified(tmp_path, mon
 
     created = node_clients.add_remote_client(int(node["id"]), name="Paris phone")
     assert created["node_id"] == node["id"]
-    assert created["address"] == "10.77.0.2/32"
+    assert created["address"] == "10.77.1.2/32"
     assert created["deployment_state"] == "queued"
     job = nodes.get_job(int(created["deployment_job_id"]))
     assert job["kind"] == "apply_awg_config"
@@ -270,7 +270,9 @@ def test_remote_client_is_created_in_unified_registry_and_verified(tmp_path, mon
             "message": "verified",
             "verified_client_ids": [int(created["id"])],
             "listen_port": 585,
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
             "server_public_key": "server-public-key",
             "runtime": runtime,
         },
@@ -289,7 +291,7 @@ def test_remote_client_is_created_in_unified_registry_and_verified(tmp_path, mon
     assert "DNS = 1.1.1.1\n" in config
     assert "DNS = 1.1.1.1, 1.0.0.1" not in config
     assert "Endpoint = 203.0.113.20:585" in config
-    assert "Address = 10.77.0.2/32" in config
+    assert "Address = 10.77.1.2/32" in config
     assert "PublicKey = server-public-key" in config
 
 
@@ -307,7 +309,9 @@ def test_verified_remote_client_deletion_removes_unified_registry_row(tmp_path, 
         result={
             "verified_client_ids": [int(created["id"])],
             "listen_port": 585,
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
             "server_public_key": "server-public-key",
             "runtime": runtime,
         },
@@ -322,7 +326,9 @@ def test_verified_remote_client_deletion_removes_unified_registry_row(tmp_path, 
         result={
             "verified_client_ids": [],
             "listen_port": 585,
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
             "server_public_key": "server-public-key",
             "runtime": runtime,
         },
@@ -346,7 +352,9 @@ def test_remote_client_is_not_marked_active_without_real_runtime_confirmation(tm
             "message": "claimed success",
             "verified_client_ids": [int(created["id"])],
             "listen_port": 64441,
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
             "server_public_key": "server-public-key",
         },
     )
@@ -356,7 +364,7 @@ def test_remote_client_is_not_marked_active_without_real_runtime_confirmation(tm
     assert "585" in row["deployment_error"] or row["deployment_error"]
 
 
-def test_same_private_address_can_exist_on_controller_and_node(tmp_path, monkeypatch):
+def test_controller_and_node_clients_use_separate_permanent_pools(tmp_path, monkeypatch):
     node, _ = ready_remote_node(tmp_path, monkeypatch)
     with db.connect() as con:
         con.execute(
@@ -369,12 +377,17 @@ def test_same_private_address_can_exist_on_controller_and_node(tmp_path, monkeyp
             """
             INSERT INTO awg_clients (
                 name,address,private_key,public_key,preshared_key,node_id,deployment_state
-            ) VALUES ('Remote','10.77.0.2/32','r-private','r-public','r-psk',?,'active')
+            ) VALUES ('Remote','10.77.1.2/32','r-private','r-public','r-psk',?,'active')
             """,
             (int(node["id"]),),
         )
-        count = con.execute("SELECT COUNT(*) FROM awg_clients WHERE address='10.77.0.2/32'").fetchone()[0]
-    assert count == 2
+        rows = con.execute(
+            "SELECT node_id,address FROM awg_clients ORDER BY id"
+        ).fetchall()
+    assert [(row["node_id"], row["address"]) for row in rows] == [
+        (None, "10.77.0.2/32"),
+        (int(node["id"]), "10.77.1.2/32"),
+    ]
 
 
 def test_node_agent_preserves_unmanaged_peers_and_replaces_only_managed_clients():

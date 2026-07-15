@@ -22,20 +22,24 @@ def test_agent_accepts_current_awg_key_when_controller_heartbeat_is_stale():
         "expected": {
             "listen_port": 585,
             "server_public_key": "stale-controller-key",
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
         },
         "peers": [{
             "id": 7,
             "name": "America client",
             "public_key": "client-public-key",
             "preshared_key": "client-psk",
-            "address": "10.77.0.2/32",
+            "address": "10.77.1.2/32",
         }],
     }
     runtime = {
         "listen_port": 585,
         "public_key": "actual-running-awg-key",
-        "server_network": "10.77.0.0/24",
+        "server_network": "10.77.1.0/24",
+        "interface_address": "10.77.1.1/24",
+        "node_slot": 1,
     }
     peers = agent._validate_managed_peers(payload, runtime)
     assert peers[0]["id"] == 7
@@ -45,30 +49,31 @@ def test_controller_accepts_verified_current_node_key_and_updates_runtime(tmp_pa
     fresh_db(tmp_path, monkeypatch)
     with db.connect() as con:
         node_id = con.execute(
-            "INSERT INTO cluster_nodes(slug,name,state,is_local,awg_runtime_json,service_awg) "
-            "VALUES('node7','Node7','online',0,?,'active')",
+            "INSERT INTO cluster_nodes(slug,name,state,is_local,node_slot,vpn_network,awg_runtime_json,service_awg) "
+            "VALUES('node7','Node7','online',0,1,'10.77.1.0/24',?,'active')",
             (json.dumps({
                 "listen_port": 585,
                 "public_key": "stale-controller-key",
-                "server_network": "10.77.0.0/24",
-                "interface_address": "10.77.0.1/24",
+                "server_network": "10.77.1.0/24",
+                "interface_address": "10.77.1.1/24",
             }),),
         ).lastrowid
         client_id = con.execute(
             "INSERT INTO awg_clients(name,address,private_key,public_key,preshared_key,node_id,deployment_state) "
-            "VALUES('America client','10.77.0.2/32','private','client-public','psk',?,'queued')",
+            "VALUES('America client','10.77.1.2/32','private','client-public','psk',?,'queued')",
             (node_id,),
         ).lastrowid
     monkeypatch.setattr(
         node_clients,
         "require_ready_node",
         lambda requested: (
-            {"id": requested, "is_local": False, "effective_state": "online"},
+            {"id": requested, "is_local": False, "effective_state": "online", "node_slot": 1, "vpn_network": "10.77.1.0/24"},
             {
                 "listen_port": 585,
                 "public_key": "stale-controller-key",
-                "server_network": "10.77.0.0/24",
-                "interface_address": "10.77.0.1/24",
+                "server_network": "10.77.1.0/24",
+                "interface_address": "10.77.1.1/24",
+                "node_slot": 1,
                 "peers": {},
             },
         ),
@@ -77,8 +82,9 @@ def test_controller_accepts_verified_current_node_key_and_updates_runtime(tmp_pa
     actual_runtime = {
         "listen_port": 585,
         "public_key": "actual-running-awg-key",
-        "server_network": "10.77.0.0/24",
-        "interface_address": "10.77.0.1/24",
+        "server_network": "10.77.1.0/24",
+        "interface_address": "10.77.1.1/24",
+        "node_slot": 1,
         "peers": {"client-public": {"latest_handshake": 0, "rx": 0, "tx": 0}},
     }
     finished = nodes.finish_job(
@@ -89,7 +95,9 @@ def test_controller_accepts_verified_current_node_key_and_updates_runtime(tmp_pa
             "message": "verified",
             "verified_client_ids": [client_id],
             "listen_port": 585,
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
             "server_public_key": "actual-running-awg-key",
             "runtime": actual_runtime,
         },
@@ -101,6 +109,6 @@ def test_controller_accepts_verified_current_node_key_and_updates_runtime(tmp_pa
 
 def test_connect_script_enrolls_with_real_awg_runtime_and_rc4_version():
     text = (ROOT / "deploy" / "connect-node.sh").read_text(encoding="utf-8")
-    assert '"agent_version":"0.7.0-RC4"' in text
+    assert '"agent_version":"0.7.0-RC5"' in text
     assert '"awg_runtime":awg_runtime()' in text
     assert '"public_key": public_key[0].strip() if public_key else ""' in text

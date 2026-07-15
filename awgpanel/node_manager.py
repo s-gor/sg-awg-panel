@@ -24,6 +24,34 @@ ALLOWED_JOB_KINDS = {
 }
 AGENT_OFFLINE_AFTER_SECONDS = 95
 ENROLLMENT_TTL_MINUTES = 30
+MAX_NODE_SLOTS = 12
+
+
+def pool_network(slot: int) -> str:
+    value = int(slot)
+    if not 0 <= value <= MAX_NODE_SLOTS:
+        raise ValueError("Некорректный номер VPN-пула")
+    return f"10.77.{value}.0/24"
+
+
+def pool_interface(slot: int) -> str:
+    return f"10.77.{int(slot)}.1/24"
+
+
+def _allocate_pool(con, node_id: int) -> tuple[int, str]:
+    row = con.execute("SELECT node_slot,vpn_network FROM cluster_nodes WHERE id=?", (int(node_id),)).fetchone()
+    if row is None:
+        raise AWGPanelError("SG-Node не найдена")
+    if row["node_slot"] is not None and str(row["vpn_network"] or ""):
+        return int(row["node_slot"]), str(row["vpn_network"])
+    for slot in range(1, MAX_NODE_SLOTS + 1):
+        if con.execute("SELECT 1 FROM cluster_pool_slots WHERE slot=?", (slot,)).fetchone() is not None:
+            continue
+        network = pool_network(slot)
+        con.execute("INSERT INTO cluster_pool_slots(slot,vpn_network,node_id) VALUES(?,?,?)", (slot, network, int(node_id)))
+        con.execute("UPDATE cluster_nodes SET node_slot=?,vpn_network=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (slot, network, int(node_id)))
+        return slot, network
+    raise ValueError("Достигнут предел: подключено или зарезервировано 12 SG-Node")
 
 
 def _utcnow() -> datetime:
@@ -113,6 +141,10 @@ def _row_dict(row) -> dict[str, Any]:
     result["country_code"] = normalize_country_code(result.get("country_code"))
     result["country_flag"] = country_flag(result["country_code"])
     result["country_name"] = country_name(result["country_code"])
+    slot = result.get("node_slot")
+    if slot is not None and not str(result.get("vpn_network") or ""):
+        result["vpn_network"] = pool_network(int(slot))
+    result["pool_interface"] = pool_interface(int(slot)) if slot is not None else ""
     return result
 
 
@@ -126,9 +158,9 @@ def ensure_local_node(
             con.execute(
                 """
                 INSERT INTO cluster_nodes (
-                    slug, name, role, state, is_local, public_host, country_code,
+                    slug, name, role, state, is_local, node_slot, vpn_network, public_host, country_code,
                     registered_at, last_seen_at, agent_version, capabilities_json
-                ) VALUES ('controller', ?, 'controller', 'online', 1, ?, ?, ?, ?, 'built-in', ?)
+                ) VALUES ('controller', ?, 'controller', 'online', 1, 0, '10.77.0.0/24', ?, ?, ?, ?, 'built-in', ?)
                 """,
                 (
                     name.strip() or "SG-AWG Controller",
@@ -140,10 +172,21 @@ def ensure_local_node(
                 ),
             )
         else:
+            # A full installation can later be enrolled as an SG-Node. Its
+            # Agent then assigns slot 1..12 in the local database. Do not turn
+            # that server back into Controller slot 0 when its local UI opens.
+            try:
+                assigned_slot = int(row["node_slot"] if row["node_slot"] is not None else 0)
+            except (TypeError, ValueError):
+                assigned_slot = 0
+            assigned_network = str(row["vpn_network"] or "")
+            if not 1 <= assigned_slot <= MAX_NODE_SLOTS or assigned_network != pool_network(assigned_slot):
+                assigned_slot = 0
+                assigned_network = pool_network(0)
             con.execute(
                 """
                 UPDATE cluster_nodes
-                SET name=?, public_host=?, state='online', last_seen_at=?,
+                SET name=?, public_host=?, node_slot=?, vpn_network=?, state='online', last_seen_at=?,
                     country_code=CASE
                         WHEN country_mode='auto' AND ?<>'' THEN ? ELSE country_code END,
                     country_updated_at=CASE
@@ -154,6 +197,8 @@ def ensure_local_node(
                 (
                     name.strip() or str(row["name"]),
                     public_host.strip() or str(row["public_host"]),
+                    assigned_slot,
+                    assigned_network,
                     _stamp(),
                     normalize_country_code(country_code),
                     normalize_country_code(country_code),
@@ -161,6 +206,20 @@ def ensure_local_node(
                     int(row["id"]),
                 ),
             )
+        local_row = con.execute(
+            "SELECT id,node_slot,vpn_network FROM cluster_nodes WHERE is_local=1"
+        ).fetchone()
+        local_id = int(local_row["id"])
+        local_slot = int(local_row["node_slot"] or 0)
+        local_network = str(local_row["vpn_network"] or pool_network(local_slot))
+        con.execute("DELETE FROM cluster_pool_slots WHERE node_id=?", (local_id,))
+        con.execute(
+            "INSERT INTO cluster_pool_slots(slot,vpn_network,node_id,retired_at) "
+            "VALUES(?,?,?,NULL) "
+            "ON CONFLICT(slot) DO UPDATE SET vpn_network=excluded.vpn_network, "
+            "node_id=excluded.node_id,retired_at=NULL",
+            (local_slot, local_network, local_id),
+        )
     return get_node_by_slug("controller")
 
 
@@ -285,6 +344,12 @@ def cleanup_duplicate_pending_nodes() -> int:
                 ).fetchone()[0]
                 if int(clients) or int(links):
                     continue
+                slot = row["node_slot"] if "node_slot" in row.keys() else None
+                if slot is not None:
+                    con.execute(
+                        "UPDATE cluster_pool_slots SET node_id=NULL,retired_at=CURRENT_TIMESTAMP WHERE slot=?",
+                        (int(slot),),
+                    )
                 con.execute("DELETE FROM cluster_nodes WHERE id=?", (node_id,))
                 removed += 1
     return removed
@@ -323,6 +388,7 @@ def create_node(*, name: str, public_host: str = "", public_port: int = 585) -> 
     slug = _unique_slug(clean_name)
     expires = _stamp(_utcnow() + timedelta(minutes=ENROLLMENT_TTL_MINUTES))
     with connect() as con:
+        con.execute("BEGIN IMMEDIATE")
         cursor = con.execute(
             """
             INSERT INTO cluster_nodes (
@@ -333,6 +399,7 @@ def create_node(*, name: str, public_host: str = "", public_port: int = 585) -> 
             (slug, clean_name, clean_host, port, _token_hash(token), expires),
         )
         node_id = int(cursor.lastrowid)
+        _allocate_pool(con, node_id)
     return get_node(node_id), token
 
 
@@ -367,6 +434,12 @@ def delete_node(node_id: int) -> None:
         if client_count:
             raise ValueError(
                 f"На SG-Node осталось клиентов: {client_count}. Сначала удалите их в разделе Clients"
+            )
+        slot = node.get("node_slot")
+        if slot is not None:
+            con.execute(
+                "UPDATE cluster_pool_slots SET node_id=NULL,retired_at=CURRENT_TIMESTAMP WHERE slot=?",
+                (int(slot),),
             )
         con.execute("DELETE FROM cluster_nodes WHERE id=?", (int(node_id),))
 
@@ -414,6 +487,8 @@ def enroll_node(*, slug: str, enrollment_token: str, metadata: dict[str, Any]) -
     now = _stamp()
     values = _metadata_values(metadata)
     with connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        _allocate_pool(con, int(node["id"]))
         con.execute(
             """
             UPDATE cluster_nodes SET

@@ -77,27 +77,32 @@ def test_admin_cli_parser_contains_recovery_actions():
     parser = admin_cli.build_parser()
     for command in (
         "status", "password", "sessions", "repair-access", "restart",
-        "restart-all", "backup", "backups", "restore", "logs", "errors",
-        "diagnostics", "clients", "cluster", "cascade", "update", "uninstall",
-        "server-name",
+        "restart-all", "backup", "backups", "verify-backup", "restore", "logs",
+        "clients", "cluster", "cascade", "update", "uninstall", "server-name",
     ):
         args = parser.parse_args([command])
         assert args.command == command
 
 
-def test_rc4_admin_menu_has_expected_numbered_actions():
+def test_rc5_admin_menu_is_compact_and_has_backup_verification():
     items = {key: label for key, label, _handler, _kind in admin_cli._menu_items()}
-    assert items["6"] == "Сменить пароль администратора"
-    assert items["9"] == "Проверить клиентов и подключения"
-    assert items["10"] == "Проверить Cluster и SG-Node"
-    assert items["11"] == "Проверить Cascade"
-    assert items["17"] == "Полностью удалить SG-AWG-Panel"
+    assert list(items) == [str(value) for value in range(1, 15)]
+    assert items["4"] == "Сменить пароль администратора"
+    assert items["6"] == "Проверить клиентов и подключения"
+    assert items["7"] == "Проверить Cluster и SG-Node"
+    assert items["8"] == "Проверить Cascade"
+    assert items["10"] == "Проверить резервную копию"
+    assert items["14"] == "Полностью удалить SG-AWG-Panel"
+    labels = "\n".join(items.values())
+    assert "Полная диагностика" not in labels
+    assert "Последние ошибки" not in labels
+    assert "Восстановить доступ" not in labels
 
 
 def test_rc4_readme_documents_single_ssh_menu():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     maintenance = (ROOT / "docs/MAINTENANCE.md").read_text(encoding="utf-8")
     assert "sudo sg-awg-panel" in readme
-    assert "6. Сменить пароль администратора" in readme
-    assert "10. Проверить Cluster и SG-Node" in readme
+    assert "4. Сменить пароль администратора" in readme
+    assert "7. Проверить Cluster и SG-Node" in readme
     assert "sudo sg-awg-panel uninstall" in maintenance

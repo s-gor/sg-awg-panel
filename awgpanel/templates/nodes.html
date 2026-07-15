@@ -28,7 +28,7 @@
     <div class="cluster-step-body">
       <span class="section-kicker">ШАГ 1</span>
       <h2>Установить полную панель на втором сервере</h2>
-      <p>Используйте тот же файл <code>0.7.0-RC4-INSTALL-SG-AWG-PANEL.run</code>, что и на Controller. После установки второй сервер остаётся самостоятельной панелью и может быть подключён как SG-Node.</p>
+      <p>Используйте тот же файл <code>0.7.0-RC5-INSTALL-SG-AWG-PANEL.run</code>, что и на Controller. После установки второй сервер остаётся самостоятельной панелью и может быть подключён как SG-Node.</p>
       <div class="cluster-step-success">✓ Один универсальный установщик для Controller и SG-Node</div>
       <small>Agent уже подготовлен, но не запускается до команды подключения. AmneziaWG использует обычный UDP-порт 585.</small>
     </div>
@@ -119,7 +119,7 @@
     <article class="cluster-node-card {{ 'controller' if node.is_local else '' }}">
       <a class="cluster-node-card-link" href="{{ url_for('node_detail_page', node_id=node.id) }}">
         <header><span class="cluster-node-icon {{ 'controller' if node.is_local else '' }}">{{ 'C' if node.is_local else 'N' }}</span><div><b>{{ country_flag_icon(node.country_code, node.country_name, "server-country-flag") }} {{ node.name }}</b><small>{{ 'Текущий сервер панели' if node.is_local else 'Удалённая SG-Node' }}</small></div><em class="status-badge {{ 'success' if node.effective_state == 'online' else ('warning' if node.effective_state == 'pending' else 'danger') }}">{{ {'online':'В сети','pending':'Ожидает','offline':'Нет связи','error':'Ошибка','disabled':'Отключена'}.get(node.effective_state,node.effective_state) }}</em></header>
-        <dl><div><dt>Адрес</dt><dd>{{ node.public_ipv4 or node.public_host or 'получит Agent' }}</dd></div><div><dt>AWG</dt><dd>{{ 'локальный Controller' if node.is_local else node.service_awg }}</dd></div><div><dt>UDP-порт</dt><dd>{{ '585' if node.is_local else (node.awg_runtime.listen_port if node.awg_runtime else '—') }}</dd></div><div><dt>RAM</dt><dd>{{ '%.1f'|format(node.memory_percent) }}%</dd></div><div><dt>Диск</dt><dd>{{ '%.1f'|format(node.disk_percent) }}%</dd></div><div><dt>Клиенты</dt><dd>{{ node.client_count }}</dd></div></dl>
+        <dl><div><dt>Адрес</dt><dd>{{ node.public_ipv4 or node.public_host or 'получит Agent' }}</dd></div><div><dt>VPN-пул</dt><dd>{{ node.vpn_network or 'назначается' }}</dd></div><div><dt>AWG</dt><dd>{{ 'локальный Controller' if node.is_local else node.service_awg }}</dd></div><div><dt>UDP-порт</dt><dd>{{ '585' if node.is_local else (node.awg_runtime.listen_port if node.awg_runtime else '—') }}</dd></div><div><dt>RAM</dt><dd>{{ '%.1f'|format(node.memory_percent) }}%</dd></div><div><dt>Диск</dt><dd>{{ '%.1f'|format(node.disk_percent) }}%</dd></div><div><dt>Клиенты</dt><dd>{{ node.client_count }}</dd></div></dl>
       </a>
       <footer class="cluster-node-card-actions"><a href="{{ url_for('node_detail_page', node_id=node.id) }}">{{ 'Открыть Controller' if node.is_local else 'Открыть SG-Node' }} →</a>{% if node.is_local %}<button type="button" data-open-server-rename>Переименовать сервер</button>{% else %}<a href="{{ url_for('node_detail_page', node_id=node.id) }}#rename-server">Переименовать SG-Node</a>{% endif %}</footer>
     </article>

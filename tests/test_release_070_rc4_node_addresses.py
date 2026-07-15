@@ -16,12 +16,13 @@ def fresh_db(tmp_path, monkeypatch):
     db.init_db()
 
 
-def runtime_with_local_peer(address: str = "10.77.0.2/32") -> dict:
+def runtime_with_local_peer(address: str = "10.77.1.2/32") -> dict:
     return {
         "listen_port": 585,
         "public_key": "server-public-key",
-        "server_network": "10.77.0.0/24",
-        "interface_address": "10.77.0.1/24",
+        "server_network": "10.77.1.0/24",
+        "interface_address": "10.77.1.1/24",
+        "node_slot": 1,
         "peers": {
             "local-public-key": {
                 "allowed_ips": address,
@@ -38,14 +39,15 @@ def runtime_with_local_peer(address: str = "10.77.0.2/32") -> dict:
 def test_next_remote_address_reserves_real_local_node_peers(tmp_path, monkeypatch):
     fresh_db(tmp_path, monkeypatch)
     address = node_clients._next_address(7, runtime_with_local_peer())
-    assert address == "10.77.0.3/32"
+    assert address == "10.77.1.3/32"
 
 
 def test_old_conflicting_controller_client_is_reallocated_before_sync(tmp_path, monkeypatch):
     fresh_db(tmp_path, monkeypatch)
     with db.connect() as con:
         node_id = con.execute(
-            "INSERT INTO cluster_nodes(slug,name,state,is_local) VALUES('srv2','SRV2','online',0)"
+            "INSERT INTO cluster_nodes(slug,name,state,is_local,node_slot,vpn_network) "
+            "VALUES('srv2','SRV2','online',0,1,'10.77.1.0/24')"
         ).lastrowid
         client_id = con.execute(
             "INSERT INTO awg_clients(name,address,private_key,public_key,preshared_key,node_id,deployment_state) "
@@ -58,7 +60,7 @@ def test_old_conflicting_controller_client_is_reallocated_before_sync(tmp_path, 
         node_clients,
         "require_ready_node",
         lambda requested: (
-            {"id": requested, "is_local": False, "effective_state": "online"},
+            {"id": requested, "is_local": False, "effective_state": "online", "node_slot": 1, "vpn_network": "10.77.1.0/24"},
             runtime,
         ),
     )
@@ -74,13 +76,13 @@ def test_old_conflicting_controller_client_is_reallocated_before_sync(tmp_path, 
     assert job["id"] == 91
     assert captured["kind"] == "apply_awg_config"
     assert captured["payload"]["target_client_ids"] == [client_id]
-    assert captured["payload"]["peers"][0]["address"] == "10.77.0.3/32"
+    assert captured["payload"]["peers"][0]["address"] == "10.77.1.3/32"
     with db.connect() as con:
         row = con.execute(
             "SELECT address,deployment_state,deployment_job_id FROM awg_clients WHERE id=?",
             (client_id,),
         ).fetchone()
-    assert row["address"] == "10.77.0.3/32"
+    assert row["address"] == "10.77.1.3/32"
     assert row["deployment_state"] == "queued"
     assert row["deployment_job_id"] == 91
 
@@ -113,13 +115,17 @@ def test_agent_rejects_managed_peer_that_overlaps_local_peer():
     runtime = {
         "listen_port": 585,
         "public_key": "server-public-key",
-        "server_network": "10.77.0.0/24",
+        "server_network": "10.77.1.0/24",
+        "interface_address": "10.77.1.1/24",
+        "node_slot": 1,
     }
     payload = {
         "expected": {
             "listen_port": 585,
             "server_public_key": "server-public-key",
-            "server_network": "10.77.0.0/24",
+            "server_network": "10.77.1.0/24",
+            "interface_address": "10.77.1.1/24",
+            "node_slot": 1,
         },
         "peers": [
             {
@@ -127,7 +133,7 @@ def test_agent_rejects_managed_peer_that_overlaps_local_peer():
                 "name": "KLMN",
                 "public_key": "managed-key",
                 "preshared_key": "psk",
-                "address": "10.77.0.2/32",
+                "address": "10.77.1.2/32",
             }
         ],
     }
@@ -135,7 +141,7 @@ def test_agent_rejects_managed_peer_that_overlaps_local_peer():
         agent._validate_managed_peers(
             payload,
             runtime,
-            reserved_addresses={"10.77.0.2": "ОПРС"},
+            reserved_addresses={"10.77.1.2": "ОПРС"},
         )
 
 

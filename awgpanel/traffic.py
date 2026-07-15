@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 
 MAX_EFFECTIVE_ROUTES = 256
+AMNEZIA_FULL_TUNNEL_ALLOWED_IPS = "0.0.0.0/0, ::/0"
 
 
 def normalize_networks(
@@ -76,6 +77,25 @@ def effective_allowed_ips(
                 "Слишком много маршрутов после применения исключений. Уменьшите число или размер исключений."
             )
     return ", ".join(str(network) for network in result)
+
+
+def exported_allowed_ips(
+    base_value: object,
+    excluded_value: object = "",
+    additional: Iterable[str] = (),
+) -> str:
+    """Return the exact full-tunnel pair recognised by AmneziaVPN.
+
+    Custom panel-managed routes remain IPv4-only and are rendered exactly as
+    calculated. Only the ordinary full-tunnel profile receives ::/0.
+    """
+    extra = [str(value or "").strip() for value in additional]
+    effective = effective_allowed_ips(base_value, excluded_value, extra)
+    normalized_base = normalize_networks(base_value, allow_empty=True)
+    normalized_excluded = normalize_networks(excluded_value, allow_empty=True)
+    if normalized_base == "0.0.0.0/0" and not normalized_excluded and not any(extra):
+        return AMNEZIA_FULL_TUNNEL_ALLOWED_IPS
+    return effective
 
 
 def validate_advertised_networks(

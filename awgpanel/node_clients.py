@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from .db import connect, init_db
 from .errors import AWGPanelError
-from .node_manager import get_node, queue_job
+from .node_manager import get_job, get_node, pool_interface, queue_job
 
 
 def _runtime(node: dict[str, Any]) -> dict[str, Any]:
@@ -33,25 +33,31 @@ def require_ready_node(node_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
         )
     if str(node.get("service_awg")) != "active":
         raise ValueError("AmneziaWG на SG-Node не запущен")
-    required = {
-        "public_key": str(runtime.get("public_key") or "").strip(),
-        "server_network": str(runtime.get("server_network") or "").strip(),
-        "interface_address": str(runtime.get("interface_address") or "").strip(),
-    }
-    if not all(required.values()):
-        raise ValueError(
-            "SG-Node ещё не передала параметры работающего awg0. Нажмите «Обновить состояние» и подождите следующий heartbeat"
-        )
+    public_key = str(runtime.get("public_key") or "").strip()
+    slot = node.get("node_slot")
+    desired_network = str(node.get("vpn_network") or "").strip()
+    if slot is None or not desired_network:
+        raise ValueError("Для SG-Node не назначен отдельный VPN-пул")
     try:
-        network = ipaddress.ip_network(required["server_network"], strict=True)
-        server_address = ipaddress.ip_interface(required["interface_address"])
-    except ValueError as exc:
-        raise ValueError("SG-Node передала некорректные параметры сети awg0") from exc
-    if network.version != 4 or server_address.ip not in network:
-        raise ValueError("Адрес работающего awg0 не входит в сеть SG-Node")
+        network = ipaddress.ip_network(desired_network, strict=True)
+        desired_interface = ipaddress.ip_interface(pool_interface(int(slot)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Controller хранит некорректный VPN-пул SG-Node") from exc
+    if int(slot) not in range(1, 13) or network != ipaddress.ip_network(f"10.77.{int(slot)}.0/24"):
+        raise ValueError("VPN-пул SG-Node не соответствует её номеру")
+    if not public_key:
+        raise ValueError(
+            "SG-Node ещё не передала публичный ключ работающего awg0. Нажмите «Обновить состояние»"
+        )
+    # Keep the reported pool for safe migration of existing local peers, but
+    # allocate every new Controller-managed client from the assigned RC5 pool.
+    runtime["reported_server_network"] = str(runtime.get("server_network") or "")
+    runtime["reported_interface_address"] = str(runtime.get("interface_address") or "")
     runtime["listen_port"] = port
+    runtime["public_key"] = public_key
     runtime["server_network"] = str(network)
-    runtime["interface_address"] = str(server_address)
+    runtime["interface_address"] = str(desired_interface)
+    runtime["node_slot"] = int(slot)
     return node, runtime
 
 
@@ -72,6 +78,21 @@ def _runtime_peer_addresses(
     claims = runtime.get("address_claims") if isinstance(runtime.get("address_claims"), list) else []
     managed_keys = managed_public_keys or set()
     result: dict[str, str] = {}
+    try:
+        reported_network = ipaddress.ip_network(
+            str(runtime.get("reported_server_network") or runtime.get("server_network") or ""),
+            strict=True,
+        )
+        desired_network = ipaddress.ip_network(str(runtime.get("server_network") or ""), strict=True)
+    except ValueError:
+        reported_network = desired_network = None
+
+    def translated(value: ipaddress.IPv4Address) -> ipaddress.IPv4Address:
+        if reported_network is None or desired_network is None or value not in reported_network:
+            return value
+        offset = int(value) - int(reported_network.network_address)
+        candidate = ipaddress.ip_address(int(desired_network.network_address) + offset)
+        return candidate if candidate in desired_network else value
     for details in claims:
         if not isinstance(details, dict):
             continue
@@ -87,7 +108,7 @@ def _runtime_peer_addresses(
         except ValueError:
             continue
         label = str(details.get("name") or "").strip()
-        result[str(route.network_address)] = label or public_key[:12]
+        result[str(translated(route.network_address))] = label or public_key[:12]
     if claims:
         return result
     for public_key, details in peers.items():
@@ -109,7 +130,7 @@ def _runtime_peer_addresses(
             if route.version != 4 or route.prefixlen != 32:
                 continue
             label = str(details.get("name") or "").strip()
-            result[str(route.network_address)] = label or str(public_key)[:12]
+            result[str(translated(route.network_address))] = label or str(public_key)[:12]
     return result
 
 
@@ -247,6 +268,8 @@ def queue_node_client_sync(
             "listen_port": 585,
             "server_public_key": str(runtime["public_key"]),
             "server_network": str(runtime["server_network"]),
+            "interface_address": str(runtime["interface_address"]),
+            "node_slot": int(runtime["node_slot"]),
         },
         "peers": peers,
         "target_client_ids": target_ids,
@@ -270,6 +293,36 @@ def queue_node_client_sync(
                 parameters,
             )
     return job
+
+
+def queue_initial_pool_sync(node_id: int) -> dict[str, Any] | None:
+    """Queue one pool-migration/client-sync job after a Node heartbeat."""
+    node, runtime = require_ready_node(int(node_id))
+    reported = str(runtime.get("reported_server_network") or "")
+    desired = str(runtime.get("server_network") or "")
+    if reported == desired and str(runtime.get("reported_interface_address") or "") == str(runtime.get("interface_address") or ""):
+        return None
+    with connect() as con:
+        pending = con.execute(
+            "SELECT id FROM node_jobs WHERE node_id=? AND kind='apply_awg_config' "
+            "AND state IN ('queued','claimed') ORDER BY id DESC",
+            (int(node_id),),
+        ).fetchall()
+    for row in pending:
+        job = get_job(int(row["id"]))
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        expected = payload.get("expected") if isinstance(payload.get("expected"), dict) else {}
+        if str(payload.get("mode") or "") == "sync_clients" and str(expected.get("server_network") or "") == desired:
+            return job
+    with connect() as con:
+        target_ids = [
+            int(row["id"])
+            for row in con.execute(
+                "SELECT id FROM awg_clients WHERE node_id=? AND deployment_state<>'deleting'",
+                (int(node_id),),
+            ).fetchall()
+        ]
+    return queue_node_client_sync(int(node_id), target_client_ids=target_ids)
 
 
 def _service_address() -> str:
@@ -407,7 +460,8 @@ def node_client_context(client: object) -> tuple[dict[str, Any], dict[str, Any]]
 
 
 def render_remote_client_config(client: object) -> str:
-    from .core import client_lifecycle, effective_allowed_ips, get_awg_settings
+    from .core import client_lifecycle, get_awg_settings
+    from .traffic import exported_allowed_ips
 
     row = dict(client)
     if str(row.get("deployment_state")) != "active":
@@ -425,7 +479,7 @@ def render_remote_client_config(client: object) -> str:
         raise AWGPanelError("SG-Node не передала публичный IP")
     if ":" in endpoint_host and not endpoint_host.startswith("["):
         endpoint_host = f"[{endpoint_host}]"
-    allowed_ips = effective_allowed_ips(row.get("allowed_ips"), row.get("excluded_ips"), [])
+    allowed_ips = exported_allowed_ips(row.get("allowed_ips"), row.get("excluded_ips"), [])
     if not allowed_ips:
         raise AWGPanelError("После применения исключений у клиента не осталось маршрутов")
     settings = get_awg_settings()

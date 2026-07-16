@@ -3,7 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d131b">
+  <meta name="theme-color" content="#0d131b" id="browser-theme-color">
+  <script>
+  (() => {
+    try {
+      const preference = localStorage.getItem('sg-awg-theme') || 'system';
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const resolved = preference === 'system' ? (systemDark ? 'dark' : 'latte') : preference;
+      document.documentElement.dataset.themePreference = preference;
+      document.documentElement.dataset.theme = resolved === 'latte' ? 'latte' : 'dark';
+    } catch (_) {
+      document.documentElement.dataset.themePreference = 'system';
+      document.documentElement.dataset.theme = 'dark';
+    }
+  })();
+  </script>
   <title>{% block title %}SG-AWG-Panel{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
@@ -81,6 +95,14 @@
       <span class="topbar-version">v{{ panel_version }}</span>
       {% set gs = global_system_status|default({'class':'success','label':'СИСТЕМА В НОРМЕ','href':url_for('system_page', tab='logs-diagnostics')}) %}
       <a class="system-pill {{ gs.class }}" href="{{ gs.href }}" title="Открыть System → Logs & Diagnostics"><span class="system-pill-dot"></span><strong>{{ gs.label }}</strong></a>
+      <details class="theme-menu" id="theme-menu">
+        <summary class="theme-chip" title="Выбрать тему интерфейса" aria-label="Выбрать тему интерфейса"><span class="theme-chip-icon" id="theme-chip-icon" aria-hidden="true">◐</span><span class="theme-chip-label" id="theme-chip-label">Как в системе</span><span class="theme-chip-chevron" aria-hidden="true">▾</span></summary>
+        <div class="theme-popover" role="menu" aria-label="Тема интерфейса">
+          <button type="button" data-theme-choice="dark" role="menuitemradio"><span aria-hidden="true">●</span><b>Тёмная</b><small>Классический графитовый интерфейс</small></button>
+          <button type="button" data-theme-choice="latte" role="menuitemradio"><span aria-hidden="true">☀</span><b>Latte Graphite</b><small>Светлая контрастная тема</small></button>
+          <button type="button" data-theme-choice="system" role="menuitemradio"><span aria-hidden="true">◐</span><b>Как в системе</b><small>Следовать теме браузера и Windows</small></button>
+        </div>
+      </details>
       <span class="account-chip">admin</span>
     </header>
 
@@ -146,7 +168,41 @@
   const copyBox = document.getElementById('ui-copy-box');
   const copyField = document.getElementById('ui-copy-field');
   const copyButton = document.getElementById('ui-copy-button');
+  const themeMenu = document.getElementById('theme-menu');
+  const themeLabel = document.getElementById('theme-chip-label');
+  const themeIcon = document.getElementById('theme-chip-icon');
+  const themeColor = document.getElementById('browser-theme-color');
+  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
   let actionResolver = null;
+
+  const themeNames = {dark: 'Тёмная', latte: 'Latte Graphite', system: 'Как в системе'};
+  const themeIcons = {dark: '●', latte: '☀', system: '◐'};
+  const resolveTheme = (preference) => preference === 'system' ? (systemTheme.matches ? 'dark' : 'latte') : preference;
+  const applyTheme = (preference, persist=true) => {
+    const safePreference = ['dark', 'latte', 'system'].includes(preference) ? preference : 'system';
+    const resolved = resolveTheme(safePreference);
+    document.documentElement.dataset.themePreference = safePreference;
+    document.documentElement.dataset.theme = resolved;
+    if (persist) { try { localStorage.setItem('sg-awg-theme', safePreference); } catch (_) {} }
+    if (themeLabel) themeLabel.textContent = themeNames[safePreference];
+    if (themeIcon) themeIcon.textContent = themeIcons[safePreference];
+    if (themeColor) themeColor.setAttribute('content', resolved === 'latte' ? '#E3E9EE' : '#0d131b');
+    document.querySelectorAll('[data-theme-choice]').forEach((button) => {
+      const active = button.dataset.themeChoice === safePreference;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+  };
+  applyTheme(document.documentElement.dataset.themePreference || localStorage.getItem('sg-awg-theme') || 'system', false);
+  document.querySelectorAll('[data-theme-choice]').forEach((button) => button.addEventListener('click', () => {
+    applyTheme(button.dataset.themeChoice || 'system');
+    themeMenu?.removeAttribute('open');
+  }));
+  systemTheme.addEventListener?.('change', () => {
+    let preference = 'system';
+    try { preference = localStorage.getItem('sg-awg-theme') || 'system'; } catch (_) {}
+    if (preference === 'system') applyTheme('system', false);
+  });
 
   const finishAction = (accepted) => {
     if (actionDialog?.open) actionDialog.close();

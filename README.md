@@ -17,7 +17,7 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 
 Пользовательский трафик проходит через AmneziaWG напрямую. Xray, VLESS, Reality и отдельная прокси-цепочка для работы соединения не требуются.
 
-> Текущая версия: `v0.7.0-RC5` · GitHub build: `RC5 Build Fix 2`.
+> Текущая версия: `v0.7.0-RC5` · GitHub build: `RC5 Build Fix 4`.
 
 ## Интерфейс RC5
 
@@ -51,6 +51,7 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 - один полный установщик для Controller и SG-Node, один updater и скрытая аварийная команда `repair-access`;
 - сохранены исправления CSRF, синхронизация реального ключа `awg0`, классический интерфейс и безопасные задания Agent;
 - Build Fix 2 сохраняет созданную Cascade-ссылку на экране до истечения срока и принимает стандартный `::/0` в импортируемом IPv4 Outbound.
+- Build Fix 4 добавляет светлую тему Latte Graphite с режимом «Как в системе» и уплотняет открытое состояние ссылки Cascade без изменения серверной логики.
 
 ## Возможности
 

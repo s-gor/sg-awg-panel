@@ -2,7 +2,7 @@
 
 **Самостоятельная веб-панель для установки и управления AmneziaWG 2.0 на одном или нескольких Ubuntu-серверах.**
 
-![Version](https://img.shields.io/badge/version-v0.7.0--RC5-3b82f6)
+![Version](https://img.shields.io/badge/version-v0.7.0--RC6-3b82f6)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%20%7C%2024.04-E95420?logo=ubuntu&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![AmneziaWG](https://img.shields.io/badge/AmneziaWG-2.0-2563EB)
@@ -17,18 +17,18 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 
 Пользовательский трафик проходит через AmneziaWG напрямую. Xray, VLESS, Reality и отдельная прокси-цепочка для работы соединения не требуются.
 
-> Текущая версия: `v0.7.0-RC5` · GitHub build: `RC5 Build Fix 5`.
+> Текущая версия: `v0.7.0-RC6` · UI: `sgawg070rc6`.
 
-## Интерфейс RC5
+## Интерфейс
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/rc5-system.png" alt="SG-AWG-Panel RC5 System"></td>
-<td width="50%"><img src="docs/screenshots/rc5-clients.png" alt="SG-AWG-Panel RC5 Clients"></td>
+<td width="50%"><img src="docs/screenshots/rc5-system.png" alt="SG-AWG-Panel System"></td>
+<td width="50%"><img src="docs/screenshots/rc5-clients.png" alt="SG-AWG-Panel Clients"></td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/rc5-cluster.png" alt="SG-AWG-Panel RC5 Cluster"></td>
-<td><img src="docs/screenshots/rc5-cascade.png" alt="SG-AWG-Panel RC5 Cascade"></td>
+<td><img src="docs/screenshots/rc5-cluster.png" alt="SG-AWG-Panel Cluster"></td>
+<td><img src="docs/screenshots/rc5-cascade.png" alt="SG-AWG-Panel Cascade"></td>
 </tr>
 </table>
 
@@ -40,18 +40,18 @@ Cluster:        Controller → SG-Node Agent → AmneziaWG runtime
 
 </details>
 
-## Главное в RC5
+## Главное в RC6
 
-- постоянные отдельные VPN-пулы: Controller `10.77.0.0/24`, SG-Node 1–12 — `10.77.1.0/24` … `10.77.12.0/24`;
-- автоматическая миграция существующих Node и их клиентов в назначенный пул;
-- точная строка `AllowedIPs = 0.0.0.0/0, ::/0` для совместимости с раздельным туннелированием AmneziaVPN;
-- единые резервные копии для веб-панели и SSH с manifest, SHA-256, SQLite `integrity_check` и обязательной проверкой;
-- упрощённое SSH-меню без дублирующих пунктов и отдельное действие «Проверить резервную копию»;
-- установка, обновление и полное удаление напрямую из GitHub `main`, без обязательного Release или тега;
-- один полный установщик для Controller и SG-Node, один updater и скрытая аварийная команда `repair-access`;
-- сохранены исправления CSRF, синхронизация реального ключа `awg0`, классический интерфейс и безопасные задания Agent;
-- Build Fix 2 сохраняет созданную Cascade-ссылку на экране до истечения срока и принимает стандартный `::/0` в импортируемом IPv4 Outbound.
-- Build Fix 5 оставляет два явных режима — «Тёмная» и «Latte Graphite» — и исправляет контраст цифр внутри диаграмм ресурсов в светлой теме. Открытое состояние ссылки Cascade остаётся компактным.
+- Controller и до **12 SG-Node** получают постоянные непересекающиеся пулы: `10.77.0.0/24` … `10.77.12.0/24`;
+- исправлено удалённое создание клиента на Node через Controller и добавлено действие **«Обновить подключение ноды»**;
+- статусы удалённых клиентов обновляются автоматически, а конфигурация выдаётся после подтверждённого применения;
+- полный туннель экспортируется в совместимом с AmneziaVPN виде: `AllowedIPs = 0.0.0.0/0, ::/0`;
+- standalone Cascade сохраняет созданную ссылку, корректно заменяет служебный доступ и принимает стандартный IPv4 Outbound с `::/0`;
+- единые резервные копии для веб-панели и SSH проверяются по manifest, SHA-256, SQLite `integrity_check`, JSON и обязательным файлам;
+- SSH-меню сокращено до полезных действий и включает отдельный пункт **«Проверить резервную копию»**;
+- полноценная светлая тема **Latte Graphite** завершена для System, Clients, Cluster, Cascade, Security, Maintenance, Help и login;
+- установка, обновление и полное удаление работают из GitHub `main`; перед обновлением создаётся страховочная копия и доступен автоматический откат;
+- RC5 определяет RC6 как новую версию, поэтому обновление можно проверить и запустить прямо из **Maintenance → Updates**.
 
 ## Возможности
 
@@ -194,13 +194,13 @@ sudo bash /tmp/install-sg-awg-panel.sh
 На Controller и на будущей SG-Node используется один и тот же файл:
 
 ```text
-0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
+0.7.0-RC6-INSTALL-SG-AWG-PANEL.run
 ```
 
 Запуск:
 
 ```bash
-sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC6-INSTALL-SG-AWG-PANEL.run
 ```
 
 `unzip`, предварительный `apt install`, Git и отдельный Node installer не требуются. Установщик показывает этапы, зелёную вертушку и время, а технический вывод пишет в журнал:
@@ -212,7 +212,7 @@ sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 На второй EC2 запустите **тот же файл**:
 
 ```bash
-sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC6-INSTALL-SG-AWG-PANEL.run
 ```
 
 Обе панели сначала самостоятельны. Затем в разделе Cluster выберите Controller и выполните показанную команду подключения на второй панели.
@@ -220,8 +220,8 @@ sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 ## Установка из ZIP
 
 ```bash
-unzip 0.7.0-RC5-AWG-Panel.zip
-cd 0.7.0-RC5-AWG-Panel
+unzip 0.7.0-RC6-AWG-Panel.zip
+cd 0.7.0-RC6-AWG-Panel
 sudo bash install.sh
 ```
 
@@ -247,23 +247,42 @@ sudo sg-awg-panel repair-access
 
 ## Обновление
 
+### Из веб-панели
+
+Для перехода с RC5 на RC6:
+
+1. откройте **Maintenance → Updates**;
+2. нажмите **«Проверить сейчас»**;
+3. панель должна показать `v0.7.0-RC6`;
+4. нажмите **«Обновить до v0.7.0-RC6»** и дождитесь завершения.
+
+Перед изменением создаётся страховочная копия. Если новая версия не запустится, updater автоматически вернёт прежнюю установку.
+
+То же действие доступно в SSH-меню:
+
+```bash
+sudo sg-awg-panel
+```
+
+Выберите пункт **«Проверить и установить обновление»**.
+
+### Updater-файл
+
 Для обеих EC2 используется один updater:
 
 ```bash
-sudo bash 0.7.0-RC5-UPDATE-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC6-UPDATE-SG-AWG-PANEL.run
 ```
 
 Из распакованного ZIP:
 
 ```bash
-unzip 0.7.0-RC5-AWG-Panel.zip
-cd 0.7.0-RC5-AWG-Panel
+unzip 0.7.0-RC6-AWG-Panel.zip
+cd 0.7.0-RC6-AWG-Panel
 sudo bash update.sh
 ```
 
-Updater создаёт страховочную копию, сохраняет Clients, ключи, Cluster, Cascade, настройки и подключение Agent. При ошибке выполняется автоматический откат.
-
-Обновление также доступно в `Maintenance → Updates` и через пункт 13 SSH-меню.
+При наличии Controller и SG-Node сначала обновите Node, затем Controller.
 
 ## Полное удаление
 
@@ -291,7 +310,7 @@ DELETE SG-AWG-PANEL COMPLETELY
 sudo reboot
 ```
 
-## Скриншоты RC5
+## Скриншоты интерфейса
 
 После финального live-теста изображения добавляются в `docs/screenshots/`. Подготовлены единые имена и размеры для System, Clients, Cluster, Cascade, SSH-меню и установщика. См. [инструкцию для скриншотов](docs/screenshots/README.md).
 
@@ -314,7 +333,7 @@ sudo reboot
 
 ## Статус релиза
 
-`0.7.0-RC5` — Release Candidate. Перед постоянным использованием рекомендуется живой прогон на двух чистых EC2:
+`0.7.0-RC6` — Release Candidate. Перед постоянным использованием рекомендуется живой прогон на двух чистых EC2:
 
 1. одинаковая установка на обе EC2;
 2. локальный клиент на каждой панели;

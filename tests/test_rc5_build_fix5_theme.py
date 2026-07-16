@@ -54,7 +54,7 @@ def test_open_cascade_link_state_is_compact() -> None:
 
 def test_ui_build_marks_build_fix_5_for_cache_busting() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf" in web
+    assert "sgawg070rc6" in web
 
 
 def test_latte_resource_dial_values_stay_visible() -> None:

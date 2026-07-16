@@ -28,7 +28,7 @@ def test_full_config_document_contains_every_managed_section(tmp_path, monkeypat
     prepare(tmp_path, monkeypatch)
     document = json.loads(config_manager.panel_config_document())
     assert document["_sgAwgPanel"]["format"] == "panel-v2"
-    assert document["_sgAwgPanel"]["version"] == "0.7.0-RC5"
+    assert document["_sgAwgPanel"]["version"] == "0.7.0-RC6"
     assert document["_sgAwgPanel"]["secrets"] == "$KEEP"
     assert set(document) == {
         "_sgAwgPanel", "server", "clients", "access", "backups", "security",

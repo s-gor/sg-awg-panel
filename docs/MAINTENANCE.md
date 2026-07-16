@@ -56,17 +56,21 @@ sudo sg-awg-panel restore
 
 ## Обновление
 
+### Из веб-панели
+
+Откройте **Maintenance → Updates**, нажмите **«Проверить сейчас»**, затем **«Обновить до v0.7.0-RC6»**. RC5 сравнивает свою версию с GitHub main и должен определить RC6 как доступное обновление.
+
 Один и тот же updater используется на Controller и SG-Node:
 
 ```bash
-sudo bash 0.7.0-RC5-UPDATE-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC6-UPDATE-SG-AWG-PANEL.run
 ```
 
 Из распакованного ZIP:
 
 ```bash
-unzip 0.7.0-RC5-AWG-Panel.zip
-cd 0.7.0-RC5-AWG-Panel
+unzip 0.7.0-RC6-AWG-Panel.zip
+cd 0.7.0-RC6-AWG-Panel
 sudo bash update.sh
 ```
 

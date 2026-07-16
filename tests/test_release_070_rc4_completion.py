@@ -10,11 +10,11 @@ def read(path: str) -> str:
 
 
 def test_rc4_versions_are_consistent():
-    assert '__version__ = "0.7.0-RC5"' in read("awgpanel/__init__.py")
-    assert 'version = "0.7.0rc5"' in read("pyproject.toml")
-    assert '__version__ = "0.7.0-RC5"' in read("node_agent/__init__.py")
-    assert "sgawg070rc5" in read("awgpanel/web.py")
-    assert "0.7.0-RC5" in read("README.md")
+    assert '__version__ = "0.7.0-RC6"' in read("awgpanel/__init__.py")
+    assert 'version = "0.7.0rc6"' in read("pyproject.toml")
+    assert '__version__ = "0.7.0-RC6"' in read("node_agent/__init__.py")
+    assert "sgawg070rc6" in read("awgpanel/web.py")
+    assert "0.7.0-RC6" in read("README.md")
 
 
 def test_rc4_release_has_one_installer_and_one_updater():
@@ -22,8 +22,8 @@ def test_rc4_release_has_one_installer_and_one_updater():
     assert "INSTALL-SG-AWG-PANEL.run" in builder
     assert "UPDATE-SG-AWG-PANEL.run" in builder
     assert "INSTALL-SG-AWG-NODE.run" not in builder
-    assert "0.7.0-RC5-INSTALL-SG-AWG-PANEL.run" in read("README.md")
-    assert "0.7.0-RC5-UPDATE-SG-AWG-PANEL.run" in read("README.md")
+    assert "0.7.0-RC6-INSTALL-SG-AWG-PANEL.run" in read("README.md")
+    assert "0.7.0-RC6-UPDATE-SG-AWG-PANEL.run" in read("README.md")
 
 
 def test_rc4_update_accepts_uppercase_release_candidate_tags():
@@ -45,7 +45,7 @@ def test_rc4_screenshot_plan_is_present():
 
 
 def test_rc4_release_notes_cover_final_scope():
-    notes = read("RELEASE-NOTES-0.7.0-RC5.md")
+    notes = read("RELEASE-NOTES-0.7.0-RC6.md")
     for phrase in (
         "SSH-меню",
         "Controller и до 12 SG-Node",

@@ -17,4 +17,4 @@ def test_latte_normal_dial_uses_bright_value():
 
 def test_build_fix6_busts_asset_cache():
     web = (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
-    assert "sgawg070rc5bf" in web
+    assert "sgawg070rc6" in web

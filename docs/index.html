@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0d131b">
-  <title>SG-AWG-Panel v0.7.0-RC5 — Working UI Snapshot</title>
+  <title>SG-AWG-Panel v0.7.0-RC6 — Working UI Snapshot</title>
   <style>
 :root{
   --bg:#0d131b;--bg2:#101824;--sidebar:#131d2a;--panel:#17212e;--panel2:#1b2634;
@@ -41,7 +41,7 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.4 20 5.8v5.9c0 5.2-3.2 8.2-8 10-4.8-1.8-8-4.8-8-10V5.8l8-3.4Z"/><path d="M12 6v11M8.1 10.2H16"/></svg></div>
-      <div><strong>SG-AWG-Panel</strong><span>v0.7.0-RC5 · working snapshot</span></div>
+      <div><strong>SG-AWG-Panel</strong><span>v0.7.0-RC6 · working snapshot</span></div>
     </div>
 
 <nav class="main-nav" aria-label="Основная навигация">
@@ -61,7 +61,7 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
     <header class="topbar">
       <button class="icon-button mobile-menu" id="mobileMenu" aria-label="Открыть меню">☰</button>
       <div class="topbar-spacer"></div>
-      <span class="topbar-version">RC5 CANDIDATE</span>
+      <span class="topbar-version">RC6 CANDIDATE</span>
       <button class="system-pill ok" data-page-link="system" title="Открыть System → Logs & Diagnostics"><span class="status-dot"></span><span>СИСТЕМА В НОРМЕ</span></button>
       <button class="icon-button" data-page-link="help" title="Справка">?</button>
       <button class="account-button"><span>admin</span><span>⌄</span></button>
@@ -71,10 +71,10 @@ button,input,select,textarea{font:inherit}.app-shell{min-height:100vh;display:fl
 <section class="page active" id="page-system">
   <div class="page-heading">
     <div><p class="eyebrow">SG-AWG-PANEL / SYSTEM</p><h1>System</h1><p>Ресурсы, службы, журналы и прикладная диагностика рабочего сервера</p></div>
-    <div class="heading-actions"><span class="snapshot-badge">v0.7.0-RC5 · WORKING</span><button class="button" data-demo="Системные данные обновлены">Обновить данные</button></div>
+    <div class="heading-actions"><span class="snapshot-badge">v0.7.0-RC6 · WORKING</span><button class="button" data-demo="Системные данные обновлены">Обновить данные</button></div>
   </div>
   <section class="panel release-strip">
-    <div><span class="status-dot"></span><div><b>База RC4 проверена · RC5 готов к живому прогону</b><p>Чистая установка, вход, клиент AmneziaWG, Traffic Rules, reboot recovery и полный uninstall.</p></div></div>
+    <div><span class="status-dot"></span><div><b>RC6 объединяет исправления RC5 и готов к живому прогону</b><p>Чистая установка, вход, клиент AmneziaWG, Traffic Rules, reboot recovery и полный uninstall.</p></div></div>
     <span class="badge good-badge">АВТОПРОВЕРКИ ПРОЙДЕНЫ</span>
   </section>
   <div class="tabs" data-tabs="system"><button class="active" data-tab="resources">Resources</button><button data-tab="statusservices">Status &amp; Services</button><button data-tab="logsdiagnostics">Logs &amp; Diagnostics</button></div>
@@ -293,7 +293,7 @@ Jmax = 128
 <section class="panel table-panel"><div class="panel-heading"><div><h2>История резервных копий</h2><p>Опасные действия спрятаны в меню конкретной копии.</p></div><button class="text-link">Как проверяются копии →</button></div><table><thead><tr><th>Дата и время</th><th>Причина</th><th>Размер</th><th>Статус</th><th class="right">Действия</th></tr></thead><tbody><tr><td><b>29 июня 2026, 16:20</b><small class="mono block">20260629-161650-040157</small></td><td>Изменение настроек AWG Server</td><td>153.7 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr><tr><td><b>29 июня 2026, 15:53</b><small class="mono block">20260629-155303-246095</small></td><td>Добавлен клиент XYZ</td><td>153.6 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr><tr><td><b>29 июня 2026, 15:30</b><small class="mono block">20260629-153015-005711</small></td><td>Автоматическая копия</td><td>151.9 KiB</td><td><span class="badge good-badge">ПРОВЕРЕНА</span></td><td class="right"><button class="kebab">⋯</button></td></tr></tbody></table></section>
 </div>
   <div class="tab-content" data-tab-content="maintenance-updates">
-<div class="two-column"><section class="panel status-hero"><div><span class="section-label">ТЕКУЩАЯ ВЕРСИЯ</span><h2>v0.7.0-RC5</h2><p>Канал обновлений: стабильные релизы</p></div><span class="badge neutral-badge">ФИНАЛЬНЫЙ RC</span></section><section class="panel"><div class="panel-heading"><div><h2>Доступная версия</h2><p>Установлена текущая кандидатура RC5 с отдельными пулами Node, проверяемыми копиями и SSH-меню.</p></div></div><div class="empty-state compact"><h3>Установлена актуальная версия</h3><p>Перед публикацией требуется финальный прогон Controller, SG-Node и Cascade на двух серверах.</p></div></section></div>
+<div class="two-column"><section class="panel status-hero"><div><span class="section-label">ТЕКУЩАЯ ВЕРСИЯ</span><h2>v0.7.0-RC6</h2><p>Канал обновлений: стабильные релизы</p></div><span class="badge neutral-badge">ФИНАЛЬНЫЙ RC</span></section><section class="panel"><div class="panel-heading"><div><h2>Доступная версия</h2><p>Установлена текущая кандидатура RC6 с отдельными пулами Node, проверяемыми копиями и SSH-меню.</p></div></div><div class="empty-state compact"><h3>Установлена актуальная версия</h3><p>Перед публикацией требуется финальный прогон Controller, SG-Node и Cascade на двух серверах.</p></div></section></div>
 <section class="panel"><div class="panel-heading"><div><h2>Безопасность обновления</h2><p>Перед обновлением создаётся проверенная резервная копия.</p></div></div><div class="check-grid"><div><span class="check ok-check">✓</span><div><b>Проверка архива</b><small>Версия, структура и контрольная сумма</small></div></div><div><span class="check ok-check">✓</span><div><b>Резервная копия</b><small>SQLite, AWG и настройки панели</small></div></div><div><span class="check ok-check">✓</span><div><b>Автоматический откат</b><small>При ошибке службы или health check</small></div></div></div></section>
 </div>
 </section>
@@ -315,7 +315,7 @@ Jmax = 128
       </div>
     </section>
     <section class="panel">
-      <div class="panel-heading"><div><h2>Разделы</h2><p>Справка соответствует текущему интерфейсу RC5.</p></div></div>
+      <div class="panel-heading"><div><h2>Разделы</h2><p>Справка соответствует текущему интерфейсу RC6.</p></div></div>
       <div class="info-cards"><div><span>Основы</span><b>Установка и вход</b></div><div><span>AWG</span><b>Server и Clients</b></div><div><span>Сеть</span><b>Rules и Outbounds</b></div><div><span>Инфраструктура</span><b>Cascade и Cluster</b></div><div><span>Защита</span><b>Security</b></div><div><span>Поддержка</span><b>Maintenance и Diagnostics</b></div></div>
     </section>
   </div>
@@ -323,7 +323,7 @@ Jmax = 128
 </section>
 
     </main>
-    <footer class="footer">© 2026 SG-AWG-Panel · v0.7.0-RC5 · автономный снимок рабочего интерфейса</footer>
+    <footer class="footer">© 2026 SG-AWG-Panel · v0.7.0-RC6 · автономный снимок рабочего интерфейса</footer>
   </div>
 </div>
 <div class="overlay" id="overlay"></div>

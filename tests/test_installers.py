@@ -128,7 +128,7 @@ def test_panel_port_validation_uses_dynamic_range():
 
 def test_clean_installer_is_fixed_to_beta3_and_reads_tty():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.7.0-RC5"' in text
+    assert 'RELEASE_VERSION="v0.7.0-RC6"' in text
     assert "</dev/tty" in text
     assert "AWGPANEL_ADMIN_PASSWORD" in text
     assert "v0.1.0-alpha8" not in text
@@ -271,7 +271,7 @@ def test_beta9_server_status_is_simple_and_hides_internal_network_checks():
 
 def test_clean_installer_release_version_is_not_clobbered_by_os_release():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert 'RELEASE_VERSION="v0.7.0-RC5"' in text
+    assert 'RELEASE_VERSION="v0.7.0-RC6"' in text
     assert '. /etc/os-release' in text
     assert 'ARCHIVE_URL="https://github.com/${REPOSITORY}/archive/refs/heads/main.tar.gz"' in text
     assert 'Загрузка ${RELEASE_VERSION} из GitHub main' in text

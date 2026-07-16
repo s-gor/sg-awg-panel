@@ -1,3 +1,17 @@
+# Changelog
+
+## v0.7.0-RC6 — 2026-07-16
+
+RC6 объединяет RC5 Build Fix 1–8 в один новый Release Candidate.
+
+- Controller и до 12 SG-Node используют отдельные постоянные VPN-пулы.
+- Исправлены удалённые клиенты SG-Node и добавлено обновление подключения ноды.
+- Исправлены standalone Cascade, сохранение ссылки и импорт IPv4 Outbound с `::/0`.
+- Добавлены проверяемые резервные копии и компактное SSH-меню.
+- Завершена Latte Graphite, включая Cluster, Cascade, диаграммы и success-компоненты.
+- Обновление RC5 → RC6 определяется и запускается из Maintenance → Updates.
+- Версии: Panel `0.7.0-RC6`, UI `sgawg070rc6`, Node Agent `0.7.0-RC6`, Python package `0.7.0rc6`.
+
 ## 0.7.0-RC5 Build Fix 8 — 2026-07-16
 
 - Завершена Latte Graphite для мастеров Cluster и Cascade.

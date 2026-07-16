@@ -107,7 +107,7 @@ def test_refresh_job_updates_node_runtime_and_server_key(tmp_path, monkeypatch):
         ok=True,
         result={
             "metadata": {
-                "agent_version": "0.7.0-RC5",
+                "agent_version": "0.7.0-RC6",
                 "machine_id": "node-machine",
                 "public_ipv4": "203.0.113.20",
                 "private_ipv4": "10.0.0.20",

@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "0.7.0-RC5"
+AGENT_VERSION = "0.7.0-RC6"
 ENV_FILE = Path(os.environ.get("SG_AWG_NODE_ENV", "/etc/sg-awg-node/agent.env"))
 AWG_CONFIG_PATH = Path("/etc/amnezia/amneziawg/awg0.conf")
 NODE_TRAFFIC_PATH = Path("/etc/sg-awg-node/traffic.nft")
@@ -166,7 +166,7 @@ def _country_code(public_ipv4: str) -> str:
     )
     for url in urls:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "SG-AWG-Node-Agent/0.7.0-RC5", "Accept": "application/json"})
+            req = urllib.request.Request(url, headers={"User-Agent": "SG-AWG-Node-Agent/0.7.0-RC6", "Accept": "application/json"})
             with opener.open(req, timeout=3) as response:
                 data = json.loads(response.read(4096).decode("utf-8", "replace"))
             value = (data.get("country") or data.get("country_code")) if isinstance(data, dict) else ""

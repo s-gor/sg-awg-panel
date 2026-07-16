@@ -53,4 +53,4 @@ def test_open_cascade_link_state_is_compact() -> None:
 
 def test_ui_build_keeps_an_rc5_cache_busting_marker() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf" in web
+    assert "sgawg070rc6" in web

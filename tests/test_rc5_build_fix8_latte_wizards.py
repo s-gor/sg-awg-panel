@@ -31,4 +31,4 @@ def test_latte_locked_cascade_steps_do_not_use_whole_card_opacity() -> None:
 
 def test_build_fix8_busts_asset_cache() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf8" in web
+    assert "sgawg070rc6" in web

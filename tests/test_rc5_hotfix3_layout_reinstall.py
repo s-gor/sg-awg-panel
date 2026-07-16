@@ -35,5 +35,5 @@ def test_hotfix3_uninstall_removes_systemd_dropins_for_reinstall():
 
 
 def test_build_202_identifiers_legacy_suite():
-    assert '0.7.0-RC5' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
-    assert 'sgawg070rc5' in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")
+    assert '0.7.0-RC6' in (ROOT / "awgpanel/__init__.py").read_text(encoding="utf-8")
+    assert 'sgawg070rc6' in (ROOT / "awgpanel/web.py").read_text(encoding="utf-8")

@@ -29,7 +29,7 @@ sudo bash /tmp/install-sg-awg-panel.sh
 На Controller и на каждой будущей SG-Node запускается один и тот же файл:
 
 ```bash
-sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
+sudo bash 0.7.0-RC6-INSTALL-SG-AWG-PANEL.run
 ```
 
 Каждый сервер сначала устанавливается как самостоятельная панель. Подключение к Controller выполняется позднее из раздела **Cluster**.
@@ -37,8 +37,8 @@ sudo bash 0.7.0-RC5-INSTALL-SG-AWG-PANEL.run
 ## Установка из ZIP
 
 ```bash
-unzip 0.7.0-RC5-AWG-Panel.zip
-cd 0.7.0-RC5-AWG-Panel
+unzip 0.7.0-RC6-AWG-Panel.zip
+cd 0.7.0-RC6-AWG-Panel
 sudo bash install.sh
 ```
 

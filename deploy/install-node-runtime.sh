@@ -109,7 +109,7 @@ run_logged "Проверка службы sg-awg-node-agent.service..." systemct
 run_logged "Запуск Nginx..." systemctl enable --now nginx.service
 
 cat > /etc/sg-awg-node/runtime.env <<EOF
-SG_AWG_NODE_RUNTIME_VERSION=0.7.0-RC5
+SG_AWG_NODE_RUNTIME_VERSION=0.7.0-RC6
 SG_AWG_NODE_PREPARED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 SG_AWG_NODE_UDP_PORT=585
 EOF

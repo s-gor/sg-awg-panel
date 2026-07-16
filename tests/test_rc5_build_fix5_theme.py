@@ -54,10 +54,10 @@ def test_open_cascade_link_state_is_compact() -> None:
 
 def test_ui_build_marks_build_fix_5_for_cache_busting() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf5" in web
+    assert "sgawg070rc5bf6" in web
 
 
 def test_latte_resource_dial_values_stay_visible() -> None:
     css = read("awgpanel/static/app.css")
-    assert 'html[data-theme="latte"] .beta9-ui .beta9-load-normal .beta9-dial-center strong{color:#66E0A0}' in css
-    assert 'html[data-theme="latte"] .beta9-ui .beta9-dial-center span{color:#C4D0DA}' in css
+    assert 'html[data-theme="latte"] body.beta9-ui .beta9-load-normal .beta9-dial-center > strong{color:#72E3A7!important;-webkit-text-fill-color:#72E3A7!important}' in css
+    assert 'html[data-theme="latte"] body.beta9-ui .beta9-dial-center > span{color:#D5DEE6!important;-webkit-text-fill-color:#D5DEE6!important;opacity:1!important}' in css

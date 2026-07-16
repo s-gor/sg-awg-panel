@@ -2573,3 +2573,12 @@ html[data-theme="latte"] .cascade-mode-choice:nth-child(2) em{color:#2F805A}
 html[data-theme="latte"] .beta9-meter{background:#C4CED5}
 html[data-theme="latte"] .beta9-icon-action:hover,html[data-theme="latte"] .node-action-button:hover{border-color:#7E91A0;background:#EAF0F3;color:#192530}
 html[data-theme="latte"] .copy-command-row code{color:#263744}
+
+
+/* RC5 Build Fix 5 — readable resource dial values and two explicit themes. */
+html[data-theme="latte"] .beta9-ui .beta9-dial-center strong{color:#F4F8FC}
+html[data-theme="latte"] .beta9-ui .beta9-load-normal .beta9-dial-center strong{color:#66E0A0}
+html[data-theme="latte"] .beta9-ui .beta9-load-warning .beta9-dial-center strong{color:#F4D878}
+html[data-theme="latte"] .beta9-ui .beta9-load-high .beta9-dial-center strong{color:#FFB06B}
+html[data-theme="latte"] .beta9-ui .beta9-load-critical .beta9-dial-center strong{color:#FF8D9C}
+html[data-theme="latte"] .beta9-ui .beta9-dial-center span{color:#C4D0DA}

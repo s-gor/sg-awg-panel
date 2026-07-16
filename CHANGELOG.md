@@ -1,3 +1,9 @@
+## 0.7.0-RC5 Build Fix 8 — 2026-07-16
+
+- Завершена Latte Graphite для мастеров Cluster и Cascade.
+- Убраны тёмные карточки и общее opacity-затемнение будущих шагов.
+- UI build: `sgawg070rc5bf8`.
+
 ## 0.7.0-RC5 Build Fix 7
 
 - Устранено падение GitHub Actions из-за устаревших тестов темы.

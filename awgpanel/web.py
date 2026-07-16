@@ -656,7 +656,7 @@ def create_app() -> Flask:
             "layout_identity_label": identity_label,
             "layout_country_code": str((local_node or {}).get("country_code") or ""),
             "layout_country_flag": country_flag((local_node or {}).get("country_code")),
-            "layout_ui_build": "sgawg070rc5bf7",
+            "layout_ui_build": "sgawg070rc5bf8",
         }
 
     def access_rows() -> list[dict[str, object]]:
@@ -674,7 +674,7 @@ def create_app() -> Flask:
 
     app.jinja_env.globals["csrf_token"] = csrf_token
     app.jinja_env.globals["panel_version"] = __version__
-    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc5bf7"
+    app.jinja_env.globals["asset_version"] = f"{__version__}-sgawg070rc5bf8"
 
     @app.errorhandler(CSRFTokenError)
     def csrf_token_error(_error):

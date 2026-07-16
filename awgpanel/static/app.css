@@ -2645,3 +2645,93 @@ html[data-theme="latte"] :is(.system-dot,.topbar-badge-dot,.status-dot,.online-d
   background:#2F805A!important;
   box-shadow:0 0 0 4px rgba(47,128,90,.12)!important;
 }
+
+/* RC5 Build Fix 8 — complete Latte Graphite treatment for Cluster/Cascade wizards. */
+html[data-theme="latte"] .cluster-wizard-step{
+  border-color:#AEBCC7;
+  background:#EEF2F4;
+  box-shadow:0 10px 26px rgba(49,70,84,.08);
+  opacity:1;
+}
+html[data-theme="latte"] .cluster-wizard-step.current{
+  border-color:#6686A0;
+  background:#EEF2F4;
+  box-shadow:inset 0 0 0 1px rgba(49,83,111,.08),0 10px 26px rgba(49,70,84,.08);
+}
+html[data-theme="latte"] .cluster-wizard-step.done{
+  border-color:#8DBFA2;
+  background:#EEF2F4;
+}
+html[data-theme="latte"] .cluster-wizard-step.locked{
+  border-color:#BCC8D0;
+  background:#D9E2E8;
+  opacity:1;
+  box-shadow:none;
+}
+html[data-theme="latte"] .cluster-step-number{
+  border-right-color:#AEBCC7;
+  background:#D9E2E8;
+  color:#31536F;
+}
+html[data-theme="latte"] .cluster-wizard-step.current .cluster-step-number{
+  background:#D3DEE5;
+  color:#27465F;
+}
+html[data-theme="latte"] .cluster-wizard-step.done .cluster-step-number{
+  background:#D8EADF;
+  color:#17623F;
+}
+html[data-theme="latte"] .cluster-wizard-step.locked .cluster-step-number{
+  background:#CBD6DD;
+  color:#71808B;
+}
+html[data-theme="latte"] .cluster-step-body :is(h2,b,strong,label){color:#192530}
+html[data-theme="latte"] .cluster-step-body :is(p,small){color:#556672}
+html[data-theme="latte"] .cluster-wizard-step.locked .cluster-step-body :is(h2,b,strong,label){color:#556672}
+html[data-theme="latte"] .cluster-wizard-step.locked .cluster-step-body :is(p,small,.section-kicker){color:#71808B}
+html[data-theme="latte"] .cluster-wizard-step.locked .empty-state{
+  border-color:#BCC8D0;
+  background:#E3E9EE;
+  color:#71808B;
+}
+html[data-theme="latte"] .cluster-simple-create-form input{
+  border-color:#AEBCC7;
+  background:#EAF0F3;
+  color:#192530;
+}
+html[data-theme="latte"] .cluster-simple-create-form input::placeholder{color:#71808B}
+
+html[data-theme="latte"] .cascade-step-nav a.locked,
+html[data-theme="latte"] .cascade-step-card.step-locked{opacity:1}
+html[data-theme="latte"] .cascade-step-nav a.locked{
+  border-color:#BCC8D0;
+  background:#D9E2E8;
+  color:#71808B;
+}
+html[data-theme="latte"] .cascade-step-card.step-locked{
+  border-color:#BCC8D0;
+  background:#D9E2E8;
+  box-shadow:none;
+}
+html[data-theme="latte"] .cascade-step-card.step-locked :is(h2,h3,b,strong,label){color:#556672}
+html[data-theme="latte"] .cascade-step-card.step-locked :is(p,small,.section-kicker){color:#71808B}
+
+html[data-theme="latte"] .cluster-inline-command{
+  border-color:#6686A0;
+  background:#EAF0F3;
+  box-shadow:inset 0 0 0 1px rgba(49,83,111,.05);
+}
+html[data-theme="latte"] .cluster-inline-command-heading b{color:#192530}
+html[data-theme="latte"] .cluster-inline-command-heading small{color:#556672}
+html[data-theme="latte"] .cluster-command-next{
+  border-color:#8DBFA2;
+  background:#D8EADF;
+}
+html[data-theme="latte"] .cluster-command-next b{color:#17623F}
+html[data-theme="latte"] .cluster-command-next span{color:#347758}
+html[data-theme="latte"] .cluster-pending-direct-actions>b{color:#192530}
+html[data-theme="latte"] .cluster-node-card:hover{
+  border-color:#7E91A0;
+  background:#EAF0F3;
+}
+html[data-theme="latte"] .cluster-node-card.controller{border-left-color:#2F805A}

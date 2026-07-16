@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +26,8 @@ def test_latte_success_components_use_stronger_palette() -> None:
     assert ".status-badge.success" in css
 
 
-def test_build_fix7_busts_asset_cache() -> None:
+def test_build_fix7_or_later_busts_asset_cache() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf7" in web
+    match = re.search(r"sgawg070rc5bf(\d+)", web)
+    assert match is not None
+    assert int(match.group(1)) >= 7

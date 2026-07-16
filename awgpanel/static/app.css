@@ -2596,3 +2596,52 @@ html[data-theme="latte"] body.beta9-ui .beta9-load-warning .beta9-dial-center > 
 html[data-theme="latte"] body.beta9-ui .beta9-load-high .beta9-dial-center > strong{color:#FFB676!important;-webkit-text-fill-color:#FFB676!important}
 html[data-theme="latte"] body.beta9-ui .beta9-load-critical .beta9-dial-center > strong{color:#FF95A4!important;-webkit-text-fill-color:#FF95A4!important}
 html[data-theme="latte"] body.beta9-ui .beta9-dial-center > span{color:#D5DEE6!important;-webkit-text-fill-color:#D5DEE6!important;opacity:1!important}
+
+
+/* RC5 Build Fix 7 — stronger Latte Graphite success contrast. */
+html[data-theme="latte"] body.beta9-ui{
+  --success:#17623F;
+  --success-soft:#D8EADF;
+}
+html[data-theme="latte"] :is(
+  .server-identity-chip,
+  .server-identity-preview,
+  .beta9-ui .system-pill,
+  .status-badge.success,
+  .pill.success,
+  .route-tag.direct,
+  .cluster-step-success,
+  .cluster-stat.success,
+  .overview-status-card.success,
+  .diagnostics-summary.success,
+  .alert.success,
+  .beta9-note.success,
+  .cascade-check-result.success,
+  .json-validation-result.success
+){
+  border-color:#8DBFA2!important;
+  background:#D8EADF!important;
+  color:#17623F!important;
+}
+html[data-theme="latte"] .server-identity-chip:hover,
+html[data-theme="latte"] .server-identity-menu[open]>.server-identity-chip{
+  border-color:#70A989!important;
+  background:#CCE3D5!important;
+}
+html[data-theme="latte"] .server-identity-chip-copy>small,
+html[data-theme="latte"] .server-identity-chip-copy>strong,
+html[data-theme="latte"] .server-identity-chip-copy>em,
+html[data-theme="latte"] .server-identity-chevron,
+html[data-theme="latte"] .server-identity-preview,
+html[data-theme="latte"] .beta9-ui .system-pill,
+html[data-theme="latte"] .status-badge.success,
+html[data-theme="latte"] .pill.success,
+html[data-theme="latte"] .route-tag.direct,
+html[data-theme="latte"] .cluster-step-success{
+  color:#17623F!important;
+  -webkit-text-fill-color:#17623F!important;
+}
+html[data-theme="latte"] :is(.system-dot,.topbar-badge-dot,.status-dot,.online-dot,.online-label i){
+  background:#2F805A!important;
+  box-shadow:0 0 0 4px rgba(47,128,90,.12)!important;
+}

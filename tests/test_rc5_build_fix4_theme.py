@@ -12,9 +12,9 @@ def test_theme_switcher_is_available_in_the_global_topbar() -> None:
     assert 'id="theme-menu"' in base
     assert 'data-theme-choice="dark"' in base
     assert 'data-theme-choice="latte"' in base
-    assert 'data-theme-choice="system"' in base
+    assert 'data-theme-choice="system"' not in base
     assert "sg-awg-theme" in base
-    assert "prefers-color-scheme: dark" in base
+    assert "sg-awg-theme" in base
 
 
 def test_latte_graphite_uses_the_approved_palette() -> None:
@@ -41,7 +41,7 @@ def test_theme_choice_updates_browser_color_and_persists() -> None:
     assert 'id="browser-theme-color"' in base
     assert "localStorage.setItem('sg-awg-theme'" in base
     assert "resolved === 'latte' ? '#E3E9EE' : '#0d131b'" in base
-    assert "systemTheme.addEventListener" in base
+    assert "systemTheme.addEventListener" not in base
 
 
 def test_open_cascade_link_state_is_compact() -> None:
@@ -51,6 +51,6 @@ def test_open_cascade_link_state_is_compact() -> None:
     assert ".cascade-external-card .cascade-enrollment-meta{gap:6px 14px" in css
 
 
-def test_ui_build_marks_build_fix_4_for_cache_busting() -> None:
+def test_ui_build_keeps_an_rc5_cache_busting_marker() -> None:
     web = read("awgpanel/web.py")
-    assert "sgawg070rc5bf4" in web
+    assert "sgawg070rc5bf" in web

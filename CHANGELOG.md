@@ -1,3 +1,9 @@
+## 0.7.0-RC5 Build Fix 7
+
+- Устранено падение GitHub Actions из-за устаревших тестов темы.
+- Усилен контраст зелёных success-элементов Latte Graphite.
+- UI build: `sgawg070rc5bf7`.
+
 ## 0.7.0-RC5 Build Fix 6
 
 - Исправлен контраст значений в круговых диаграммах Latte Graphite.
